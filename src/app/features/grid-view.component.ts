@@ -52,6 +52,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.blockSize = await firstValueFrom(this.httpClient.get<number>('/gen-api/blocksize'));
     this.setupCanvasEvents();
+    this.updateVisibleBlocks();
   }
 
   ngOnDestroy() {
