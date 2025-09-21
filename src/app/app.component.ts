@@ -1,5 +1,5 @@
 import {Component} from '@angular/core';
-import {GridViewComponent} from './features/grid-view.component';
+import {GridViewComponent} from './features/grid-view/grid-view.component';
 
 @Component({
   standalone: true,

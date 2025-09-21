@@ -1,0 +1,28 @@
+<!-- grid-view.component.html -->
+<div class="grid-container">
+  <canvas
+    #gridCanvas
+    [style.border]="'1px solid #ccc'"
+    [style.display]="'block'"
+    [style.background-color]="'white'">
+    Your browser does not support the HTML5 Canvas element.
+  </canvas>
+
+  <!-- Optional: Add controls for debugging/testing -->
+  <div class="controls" [style.margin-top]="'10px'">
+    <button (click)="zoomToFit()" [style.margin-right]="'10px'">Zoom to Fit</button>
+    <button (click)="centerOn(0, 0)" [style.margin-right]="'10px'">Center Origin</button>
+    <button (click)="setShowGrid(!showGrid)" [style.margin-right]="'10px'">
+      {{ showGrid ? 'Hide' : 'Show' }} Grid
+    </button>
+    <button (click)="setUseImageData(!useImageData)" [style.margin-right]="'10px'">
+      {{ useImageData ? 'Canvas API' : 'ImageData' }} Mode
+    </button>
+
+    <div [style.margin-top]="'5px'" [style.font-size]="'12px'" [style.color]="'#666'">
+      Zoom: {{ currentZoom.toFixed(1) }}x |
+      Visible Blocks: {{ visibleBlockCount }} |
+      Offset: ({{ currentOffset.x.toFixed(1) }}, {{ currentOffset.y.toFixed(1) }})
+    </div>
+  </div>
+</div>
