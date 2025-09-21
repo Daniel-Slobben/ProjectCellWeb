@@ -3,12 +3,14 @@ import {FormsModule} from '@angular/forms';
 import {firstValueFrom} from 'rxjs';
 import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
+import {BlockInfoComponent} from './block-info.component';
+import {NgIf} from '@angular/common';
 
 @Component({
   selector: 'grid-view',
   standalone: true,
   templateUrl: './grid-view.component.html',
-  imports: [FormsModule]
+  imports: [FormsModule, BlockInfoComponent, NgIf]
 })
 export class GridViewComponent implements AfterViewInit, OnDestroy {
 
@@ -93,43 +95,25 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const startBlockY = Math.floor(this.cellOffsetY / this.blockSize);
     const endBlockX = Math.floor((this.cellOffsetX + this.canvasWidth / this.cellSize) / this.blockSize);
     const endBlockY = Math.floor((this.cellOffsetY + this.canvasHeight / this.cellSize) / this.blockSize);
-
     const currentVisibleBlocks = new Set<string>();
 
-    // Always clear and redraw for now to debug
     this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
 
-    console.log(`Rendering blocks from (${startBlockX},${startBlockY}) to (${endBlockX},${endBlockY})`);
-    console.log(`Viewport: offset(${this.cellOffsetX.toFixed(1)}, ${this.cellOffsetY.toFixed(1)}) cellSize:${this.cellSize.toFixed(1)}`);
-
-    let blocksDrawn = 0;
-
-    // Collect visible blocks
     for (let blockY = startBlockY; blockY <= endBlockY; blockY++) {
       for (let blockX = startBlockX; blockX <= endBlockX; blockX++) {
         const key = this.getKey(blockX, blockY);
         currentVisibleBlocks.add(key);
 
-        // Subscribe to block if not already subscribed
         if (this.blockService.getSubscription(key) == undefined) {
           this.blockService.addBlock(key);
         }
-
-        // Always draw for debugging
         const blockData = this.blockService.getBlock(key);
         console.log(`Drawing block ${key}, has data:`, blockData !== undefined);
 
         this.drawBlockWithImageData(blockX, blockY);
-        blocksDrawn++;
       }
     }
-
-    console.log(`Drew ${blocksDrawn} blocks`);
-
-    // Update block service with visible blocks
     this.blockService.updateVisible(currentVisibleBlocks);
-
-    // Clear dirty blocks and update last visible set
     this.lastVisibleBlocks = currentVisibleBlocks;
   }
 
@@ -171,12 +155,32 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.ctx.drawImage(offscreen, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
 
     // Optional debug border
-    this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)';
+    this.ctx.strokeStyle = 'rgba(128, 128, 128, 255)';
     this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
   }
 
-  // Event handlers with arrow functions for proper 'this' binding
   private onDragStart = (e: MouseEvent) => {
+    // 2 = doubleclick
+    if (e.detail === 2) {
+      const rect = this.canvasRef.nativeElement.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      // Convert mouse position to world cell coordinates
+      const worldX = this.cellOffsetX + mouseX / this.cellSize;
+      const worldY = this.cellOffsetY + mouseY / this.cellSize;
+
+      // Convert world cell coords to block coords
+      const blockX = Math.floor(worldX / this.blockSize);
+      const blockY = Math.floor(worldY / this.blockSize);
+
+      this.selectedBlock = { x: blockX, y: blockY };
+
+      // Fake API call for now
+      console.log(`Fetching info for block ${blockX}, ${blockY}`);
+      // this.httpClient.get(`/gen-api/blockinfo/${blockX}/${blockY}`).subscribe(...);
+    }
+
     this.isDragging = true;
     this.dragStartX = e.clientX;
     this.dragStartY = e.clientY;
@@ -274,4 +278,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   public get visibleBlockCount(): number {
     return this.lastVisibleBlocks.size;
   }
+
+  public selectedBlock: {x: number; y: number} | null = null;
 }

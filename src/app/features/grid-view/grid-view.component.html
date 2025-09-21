@@ -8,6 +8,12 @@
     Your browser does not support the HTML5 Canvas element.
   </canvas>
 
+  <block-info
+    *ngIf="selectedBlock"
+    [x]="selectedBlock.x"
+    [y]="selectedBlock.y"
+  ></block-info>
+
   <!-- Optional: Add controls for debugging/testing -->
   <div class="controls" [style.margin-top]="'10px'">
     <button (click)="zoomToFit()" [style.margin-right]="'10px'">Zoom to Fit</button>
