@@ -14,7 +14,5 @@ export class TeleportComponent {
     // Sanitize inputs
     const x = Math.max(0, Math.floor(this.teleportX));
     const y = Math.max(0, Math.floor(this.teleportY));
-
   }
-
 }

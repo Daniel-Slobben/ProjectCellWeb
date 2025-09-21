@@ -31,8 +31,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private dragStartY = 0;
 
   // Performance optimization properties
-  private lastOffsetX = 0;
-  private lastOffsetY = 0;
   private animationFrameId?: number;
   private lastVisibleBlocks = new Set<string>();
 
