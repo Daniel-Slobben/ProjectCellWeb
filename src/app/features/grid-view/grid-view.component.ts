@@ -16,6 +16,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   private blockSize: number = 10;
   private cellSize = 8.7;
+  private minCellSize: number = 5;
+  private maxCellSize: number = 20;
   private canvasWidth = 1200;
   private canvasHeight = 600;
 
@@ -29,17 +31,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private dragStartY = 0;
 
   // Performance optimization properties
-  private dirtyBlocks = new Set<string>();
   private lastOffsetX = 0;
   private lastOffsetY = 0;
   private animationFrameId?: number;
-  private needsFullRedraw = false;
   private lastVisibleBlocks = new Set<string>();
-
-  // Performance settings
-  public useImageData = false; // Toggle for ImageData optimization
-  public showGrid = true; // Toggle for grid lines
-  private minCellSizeForGrid = 4; // Minimum cell size to show grid lines
 
   constructor(private httpClient: HttpClient, private blockService: BlockService) {
   }
@@ -71,9 +66,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.setupCanvasEvents();
     this.startRenderLoop();
-
-    // Initial render
-    this.needsFullRedraw = true;
   }
 
   ngOnDestroy() {
@@ -92,41 +84,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   private startRenderLoop() {
     const render = () => {
-      let shouldRender = false;
-
-      // Always render for debugging initially
-      shouldRender = true;
-
-      // Check if viewport changed
-      if (this.hasViewportChanged()) {
-        console.log('Viewport changed, triggering render');
-        shouldRender = true;
-      }
-
-      // Check if any blocks are dirty
-      if (this.dirtyBlocks.size > 0) {
-        console.log(`${this.dirtyBlocks.size} dirty blocks, triggering render`);
-        shouldRender = true;
-      }
-
-      // Render if needed
-      if (shouldRender) {
-        this.updateVisibleBlocks();
-      }
-
+      this.updateVisibleBlocks();
       this.animationFrameId = requestAnimationFrame(render);
     };
     render();
-  }
-
-  private hasViewportChanged(): boolean {
-    if (this.cellOffsetX !== this.lastOffsetX || this.cellOffsetY !== this.lastOffsetY) {
-      this.lastOffsetX = this.cellOffsetX;
-      this.lastOffsetY = this.cellOffsetY;
-      this.needsFullRedraw = true;
-      return true;
-    }
-    return false;
   }
 
   private updateVisibleBlocks() {
@@ -160,11 +121,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         const blockData = this.blockService.getBlock(key);
         console.log(`Drawing block ${key}, has data:`, blockData !== undefined);
 
-        if (this.useImageData) {
-          this.drawBlockWithImageData(blockX, blockY);
-        } else {
-          this.drawSingleBlock(blockX, blockY);
-        }
+        this.drawBlockWithImageData(blockX, blockY);
         blocksDrawn++;
       }
     }
@@ -175,81 +132,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.blockService.updateVisible(currentVisibleBlocks);
 
     // Clear dirty blocks and update last visible set
-    this.dirtyBlocks.clear();
     this.lastVisibleBlocks = currentVisibleBlocks;
-    this.needsFullRedraw = false;
-  }
-
-  private drawSingleBlock(blockX: number, blockY: number) {
-    const data = this.blockService.getBlock(this.getKey(blockX, blockY));
-    const baseX = blockX * this.blockSize;
-    const baseY = blockY * this.blockSize;
-
-    console.log(`Drawing block at (${blockX}, ${blockY}), baseWorld: (${baseX}, ${baseY})`);
-
-    // Calculate block position on canvas
-    const blockCanvasX = (baseX - this.cellOffsetX) * this.cellSize;
-    const blockCanvasY = (baseY - this.cellOffsetY) * this.cellSize;
-    const blockPixelSize = this.blockSize * this.cellSize;
-
-    console.log(`Block canvas position: (${blockCanvasX.toFixed(1)}, ${blockCanvasY.toFixed(1)}) size: ${blockPixelSize.toFixed(1)}`);
-
-    // Draw a test rectangle first to see if positioning works
-    this.ctx.fillStyle = 'lightblue';
-    this.ctx.fillRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
-
-    // If no data, just show the test rectangle and border
-    if (!data) {
-      console.log(`No data for block ${blockX}/${blockY}, showing placeholder`);
-      this.ctx.strokeStyle = 'red';
-      this.ctx.lineWidth = 2;
-      this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
-      this.ctx.lineWidth = 1;
-      return;
-    }
-
-    // Draw individual cells
-    let cellsDrawn = 0;
-    for (let y = 0; y < this.blockSize; y++) {
-      for (let x = 0; x < this.blockSize; x++) {
-        const cell = data[x]?.[y];
-        const worldX = baseX + x;
-        const worldY = baseY + y;
-        const canvasX = (worldX - this.cellOffsetX) * this.cellSize;
-        const canvasY = (worldY - this.cellOffsetY) * this.cellSize;
-
-        // Only draw cells that are visible on canvas
-        if (canvasX >= -this.cellSize && canvasX < this.canvasWidth + this.cellSize &&
-          canvasY >= -this.cellSize && canvasY < this.canvasHeight + this.cellSize) {
-
-          if (cell === false) {
-            this.ctx.fillStyle = 'white';
-          } else {
-            this.ctx.fillStyle = 'black';
-          }
-
-          this.ctx.fillRect(canvasX, canvasY, this.cellSize, this.cellSize);
-
-          // Draw grid lines if enabled
-          if (this.showGrid && this.cellSize >= this.minCellSizeForGrid) {
-            this.ctx.strokeStyle = '#ccc';
-            this.ctx.lineWidth = 0.5;
-            this.ctx.strokeRect(canvasX, canvasY, this.cellSize, this.cellSize);
-            this.ctx.lineWidth = 1;
-          }
-
-          cellsDrawn++;
-        }
-      }
-    }
-
-    console.log(`Drew ${cellsDrawn} cells in block ${blockX}/${blockY}`);
-
-    // Draw block border
-    this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
-    this.ctx.lineWidth = 2;
-    this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
-    this.ctx.lineWidth = 1;
   }
 
   private drawBlockWithImageData(blockX: number, blockY: number) {
@@ -331,7 +214,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const newCellSize = this.cellSize * zoomFactor;
 
     // Limit zoom range
-    if (newCellSize >= 2 && newCellSize <= 50) {
+    if (newCellSize >= this.minCellSize && newCellSize <= this.maxCellSize) {
       // Zoom towards mouse position
       const rect = this.canvasRef.nativeElement.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
@@ -346,8 +229,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       // Adjust offset to keep mouse position stable
       this.cellOffsetX = worldX - mouseX / this.cellSize;
       this.cellOffsetY = worldY - mouseY / this.cellSize;
-
-      this.needsFullRedraw = true;
     }
   };
 
@@ -370,37 +251,17 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     return `${blockX}/${blockY}`;
   }
 
-  public markBlockDirty(blockX: number, blockY: number) {
-    this.dirtyBlocks.add(this.getKey(blockX, blockY));
-  }
-
-  public markBlocksDirty(blockKeys: string[]) {
-    blockKeys.forEach(key => this.dirtyBlocks.add(key));
-  }
-
-  public setUseImageData(useImageData: boolean) {
-    this.useImageData = useImageData;
-    this.needsFullRedraw = true;
-  }
-
-  public setShowGrid(showGrid: boolean) {
-    this.showGrid = showGrid;
-    this.needsFullRedraw = true;
-  }
-
   public zoomToFit() {
     // Calculate appropriate zoom level to fit content
     // This would need to be implemented based on your data bounds
     this.cellSize = 8.7;
     this.cellOffsetX = 0;
     this.cellOffsetY = 0;
-    this.needsFullRedraw = true;
   }
 
   public centerOn(worldX: number, worldY: number) {
     this.cellOffsetX = worldX - (this.canvasWidth / this.cellSize) / 2;
     this.cellOffsetY = worldY - (this.canvasHeight / this.cellSize) / 2;
-    this.needsFullRedraw = true;
   }
 
   // Getters for debugging/info

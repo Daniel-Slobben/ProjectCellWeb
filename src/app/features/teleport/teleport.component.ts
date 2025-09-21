@@ -1,6 +1,6 @@
 import {Component} from '@angular/core';
 import {FormsModule} from '@angular/forms';
-import {GridViewComponent} from '../grid-view.component';
+import {GridViewComponent} from '../grid-view/grid-view.component';
 
 @Component({
   selector: 'teleport', standalone: true, templateUrl: './teleport.component.html', imports: [FormsModule]
