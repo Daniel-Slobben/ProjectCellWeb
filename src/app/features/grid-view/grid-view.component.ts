@@ -75,7 +75,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     // Clean up event listeners
     const canvas = this.canvasRef.nativeElement;
-    canvas.removeEventListener('mousedown', this.onDragStart);
+    canvas.removeEventListener('mousedown', this.onClick);
     canvas.removeEventListener('mouseup', this.onDragEnd);
     canvas.removeEventListener('mouseleave', this.onDragEnd);
     canvas.removeEventListener('mousemove', this.onDragMove);
@@ -124,6 +124,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const baseX = blockX * this.blockSize;
     const baseY = blockY * this.blockSize;
 
+    // TODO selected block rode border maken, alle andere niet
     const blockCanvasX = (baseX - this.cellOffsetX) * this.cellSize;
     const blockCanvasY = (baseY - this.cellOffsetY) * this.cellSize;
     const blockPixelSize = this.blockSize * this.cellSize;
@@ -159,33 +160,43 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
   }
 
-  private onDragStart = (e: MouseEvent) => {
-    // 2 = doubleclick
-    if (e.detail === 2) {
-      const rect = this.canvasRef.nativeElement.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      // Convert mouse position to world cell coordinates
-      const worldX = this.cellOffsetX + mouseX / this.cellSize;
-      const worldY = this.cellOffsetY + mouseY / this.cellSize;
-
-      // Convert world cell coords to block coords
-      const blockX = Math.floor(worldX / this.blockSize);
-      const blockY = Math.floor(worldY / this.blockSize);
-
-      this.selectedBlock = { x: blockX, y: blockY };
-
-      // Fake API call for now
-      console.log(`Fetching info for block ${blockX}, ${blockY}`);
-      // this.httpClient.get(`/gen-api/blockinfo/${blockX}/${blockY}`).subscribe(...);
+  private onClick= (e: MouseEvent) => {
+    // Single Click
+    if (e.detail === 1) {
+      this.startDragging(e);
     }
+    // Double Click
+    if (e.detail === 2) {
+      this.selectBlock(e);
+    }
+  };
 
+  private startDragging(e: MouseEvent) {
     this.isDragging = true;
     this.dragStartX = e.clientX;
     this.dragStartY = e.clientY;
     this.canvasRef.nativeElement.style.cursor = 'grabbing';
-  };
+  }
+
+  private selectBlock(e: MouseEvent) {
+    const rect = this.canvasRef.nativeElement.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // Convert mouse position to world cell coordinates
+    const worldX = this.cellOffsetX + mouseX / this.cellSize;
+    const worldY = this.cellOffsetY + mouseY / this.cellSize;
+
+    // Convert world cell coords to block coords
+    const blockX = Math.floor(worldX / this.blockSize);
+    const blockY = Math.floor(worldY / this.blockSize);
+
+    this.selectedBlock = {x: blockX, y: blockY};
+
+    // Fake API call for now
+    console.log(`Fetching info for block ${blockX}, ${blockY}`);
+    // this.httpClient.get(`/gen-api/blockinfo/${blockX}/${blockY}`).subscribe(...);
+  }
 
   private onDragEnd = () => {
     this.isDragging = false;
@@ -239,7 +250,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     canvas.style.cursor = 'grab';
 
     // Drag & Pan
-    canvas.addEventListener('mousedown', this.onDragStart);
+    canvas.addEventListener('mousedown', this.onClick);
     canvas.addEventListener('mouseup', this.onDragEnd);
     canvas.addEventListener('mouseleave', this.onDragEnd);
     canvas.addEventListener('mousemove', this.onDragMove);
