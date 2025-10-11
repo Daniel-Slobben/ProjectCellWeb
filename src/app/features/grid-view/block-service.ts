@@ -8,7 +8,7 @@ import SockJS from 'sockjs-client';
 export class BlockService {
   private stompClient: RxStomp;
   private subscriptions = new Map<string, Subscription>();
-  private blockData = new Map<string, boolean[][]>();
+  private blockData = new Map<string, string[]>();
 
   constructor(private httpClient: HttpClient) {
     this.stompClient = new RxStomp();
@@ -45,7 +45,7 @@ export class BlockService {
     this.subscriptions.set(key, subscription);
 
     // Fetch initial block with http
-    this.httpClient.get<boolean[][]>(`/gen-api/state/${key}`).subscribe((data) => {
+    this.httpClient.get<string[]>(`/gen-api/block/${key}/state`).subscribe((data) => {
       this.updateBlock(key, data)
     });
   }
@@ -57,15 +57,18 @@ export class BlockService {
         sub.unsubscribe();
         this.subscriptions.delete(key);
         this.blockData.delete(key);
+        this.httpClient.get<string[]>(`/gen-api/block/${key}?isUpdating=false`).subscribe((data) => {
+          this.updateBlock(key, data)
+        });
       }
     });
   }
 
-  updateBlock(key: string, data: boolean[][]) {
+  updateBlock(key: string, data: string[]) {
     this.blockData.set(key, data);
   }
 
-  getBlock(key: string): boolean[][] | undefined {
+  getBlock(key: string): string[] | undefined {
     return this.blockData.get(key);
   }
 }

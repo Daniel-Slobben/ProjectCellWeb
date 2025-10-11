@@ -133,14 +133,14 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const imageData = this.ctx.createImageData(this.blockSize, this.blockSize);
     const pixels = imageData.data;
 
-    for (let y = 0; y < this.blockSize; y++) {
-      for (let x = 0; x < this.blockSize; x++) {
-        const cell = data?.[x]?.[y];
-        const color = cell ? 0 : 255; // black or white
-        const index = (y * this.blockSize + x) * 4;
-        pixels[index] = color;     // R
-        pixels[index + 1] = color; // G
-        pixels[index + 2] = color; // B
+    const dataDecoded = data.map(this.base64ToBytes);
+    for (let x = 0; x < this.blockSize; x++) {
+      for (let y = 0; y < this.blockSize; y++) {
+        const color = this.byteToRgb(dataDecoded[x][y]);
+        const index = (x * this.blockSize + y) * 4;
+        pixels[index] = color[0];     // R
+        pixels[index + 1] = color[1]; // G
+        pixels[index + 2] = color[2]; // B
         pixels[index + 3] = 255;   // A
       }
     }
@@ -291,4 +291,33 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   public selectedBlock: {x: number; y: number} | null = null;
+
+  /**
+   * Map a byte (0–255) to an RGB color spanning the full hue spectrum.
+   */
+  /**
+   * Convert 8-bit RGB332 color value to full 24-bit RGB tuple.
+   * @param value - number from 0–255
+   * @returns [r, g, b] each in range 0–255
+   */
+  public byteToRgb(value: number): [number, number, number] {
+    if (value < 0 || value > 255) {
+      throw new Error('Value must be between 0 and 255');
+    }
+
+    const rBits = (value >> 5) & 0b111;
+    const gBits = (value >> 2) & 0b111;
+    const bBits = value & 0b11;
+
+    const r = Math.round((rBits / 7) * 255);
+    const g = Math.round((gBits / 7) * 255);
+    const b = Math.round((bBits / 3) * 255);
+
+    return [r, g, b];
+  }
+
+  public base64ToBytes(base64: string): Uint8Array {
+    return Uint8Array.from(base64);
+  }
 }
+
