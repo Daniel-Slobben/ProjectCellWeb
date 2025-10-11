@@ -45,7 +45,7 @@ export class BlockService {
     this.subscriptions.set(key, subscription);
 
     // Fetch initial block with http
-    this.httpClient.get<boolean[][]>(`/gen-api/block/${key}/state`).subscribe((data) => {
+    this.httpClient.get<boolean[][]>(`/gen-api/block/${key}?isUpdating=true`).subscribe((data) => {
       this.updateBlock(key, data)
     });
   }
