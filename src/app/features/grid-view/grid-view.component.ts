@@ -16,7 +16,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
 
-  private blockSize: number = 10;
+  protected blockSize: number = 10;
   private cellSize = 8.7;
   private minCellSize: number = 5;
   private maxCellSize: number = 20;
@@ -99,35 +99,34 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
 
-    for (let blockY = startBlockY; blockY <= endBlockY; blockY++) {
-      for (let blockX = startBlockX; blockX <= endBlockX; blockX++) {
+    for (let blockX = startBlockX; blockX <= endBlockX; blockX++) {
+      for (let blockY = startBlockY; blockY <= endBlockY; blockY++) {
         const key = this.getKey(blockX, blockY);
         currentVisibleBlocks.add(key);
 
         if (this.blockService.getSubscription(key) == undefined) {
           this.blockService.addBlock(key);
         }
-        const blockData = this.blockService.getBlock(key);
-        console.log(`Drawing block ${key}, has data:`, blockData !== undefined);
-
         this.drawBlockWithImageData(blockX, blockY);
       }
     }
     this.blockService.updateVisible(currentVisibleBlocks);
+
+    if (this.selectedBlock != undefined) {
+      const offscreen = document.createElement('canvas');
+      offscreen.width = this.blockSize;
+      offscreen.height = this.blockSize;
+      this.drawRectangleBorder(this.selectedBlock.x, this.selectedBlock.y, offscreen, "SELECTED");
+    }
+
     this.lastVisibleBlocks = currentVisibleBlocks;
   }
 
   private drawBlockWithImageData(blockX: number, blockY: number) {
+
     const data = this.blockService.getBlock(this.getKey(blockX, blockY));
     if (!data) return;
 
-    const baseX = blockX * this.blockSize;
-    const baseY = blockY * this.blockSize;
-
-    // TODO selected block rode border maken, alle andere niet
-    const blockCanvasX = (baseX - this.cellOffsetX) * this.cellSize;
-    const blockCanvasY = (baseY - this.cellOffsetY) * this.cellSize;
-    const blockPixelSize = this.blockSize * this.cellSize;
 
     // Create a tiny block image (one pixel per cell)
     const imageData = this.ctx.createImageData(this.blockSize, this.blockSize);
@@ -145,19 +144,32 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       }
     }
 
-
     // Put image at 1:1 resolution, then scale drawImage
     const offscreen = document.createElement('canvas');
     offscreen.width = this.blockSize;
     offscreen.height = this.blockSize;
     const offCtx = offscreen.getContext('2d')!;
     offCtx.putImageData(imageData, 0, 0);
+    this.drawRectangleBorder(blockX, blockY, offscreen, "NORMAL");
+  }
+
+  private drawRectangleBorder(blockX: number, blockY: number, offscreen: HTMLCanvasElement, color: string) {
+    const baseX = blockX * this.blockSize;
+    const baseY = blockY * this.blockSize;
+
+    const blockCanvasX = (baseX - this.cellOffsetX) * this.cellSize;
+    const blockCanvasY = (baseY - this.cellOffsetY) * this.cellSize;
+    const blockPixelSize = this.blockSize * this.cellSize;
 
     this.ctx.imageSmoothingEnabled = false;
     this.ctx.drawImage(offscreen, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
-
-    // Optional debug border
-    this.ctx.strokeStyle = 'rgba(128, 128, 128, 255)';
+    if (color == "NORMAL") {
+      this.ctx.lineWidth = 1;
+      this.ctx.strokeStyle = 'rgba(128, 128, 128, 255)';
+    } else {
+      this.ctx.lineWidth = 3;
+      this.ctx.strokeStyle = 'rgba(210, 0, 109, 1)';
+    }
     this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
   }
 
@@ -194,8 +206,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.selectedBlock = {x: blockX, y: blockY};
 
-    // Fake API call for now
-    console.log(`Fetching info for block ${blockX}, ${blockY}`);
     // this.httpClient.get(`/gen-api/blockinfo/${blockX}/${blockY}`).subscribe(...);
   }
 
