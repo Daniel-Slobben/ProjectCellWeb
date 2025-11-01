@@ -5,12 +5,16 @@ import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import {BlockInfoComponent} from './block-info.component';
 import {NgIf} from '@angular/common';
+import {Utils} from './utils.component';
+import {RunnerInfoComponent} from '../runner-info/runner-info.component';
+import {Application} from 'pixi.js';
 
 @Component({
   selector: 'grid-view',
   standalone: true,
   templateUrl: './grid-view.component.html',
-  imports: [FormsModule, BlockInfoComponent, NgIf]
+  styleUrls: ['./grid-view.component.css'],
+  imports: [FormsModule, BlockInfoComponent, NgIf, RunnerInfoComponent]
 })
 export class GridViewComponent implements AfterViewInit, OnDestroy {
 
@@ -20,8 +24,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private cellSize = 8.7;
   private minCellSize: number = 5;
   private maxCellSize: number = 20;
-  private canvasWidth = 1200;
-  private canvasHeight = 600;
+  private canvasWidth = window.screen.width - 400;
+  private canvasHeight = window.innerHeight - 30;
+
 
   private cellOffsetX = 0;
   private cellOffsetY = 0;
@@ -32,15 +37,17 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private dragStartX = 0;
   private dragStartY = 0;
 
-  // Performance optimization properties
   private animationFrameId?: number;
   private lastVisibleBlocks = new Set<string>();
 
-  constructor(private httpClient: HttpClient, private blockService: BlockService) {
+  public selectedBlock: {x: number; y: number} | null = null;
+  public editSelectedBlock: boolean = false;
+
+  constructor(private httpClient: HttpClient, private blockService: BlockService, private utils: Utils) {
   }
 
   async ngAfterViewInit() {
-    // Add null check for canvasRef
+    const app = new Application();
     if (!this.canvasRef?.nativeElement) {
       console.error('Canvas element not found. Make sure template has <canvas #gridCanvas></canvas>');
       return;
@@ -101,7 +108,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     for (let blockX = startBlockX; blockX <= endBlockX; blockX++) {
       for (let blockY = startBlockY; blockY <= endBlockY; blockY++) {
-        const key = this.getKey(blockX, blockY);
+        const key = this.utils.getKey(blockX, blockY);
         currentVisibleBlocks.add(key);
 
         if (this.blockService.getSubscription(key) == undefined) {
@@ -123,9 +130,16 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private drawBlockWithImageData(blockX: number, blockY: number) {
+    // Put image at 1:1 resolution, then scale drawImage
+    const offscreen = document.createElement('canvas');
+    offscreen.width = this.blockSize;
+    offscreen.height = this.blockSize;
 
-    const data = this.blockService.getBlock(this.getKey(blockX, blockY));
-    if (!data) return;
+    let data = this.blockService.getBlock(this.utils.getKey(blockX, blockY));
+    if (!data) {
+      this.drawRectangleBorder(blockX, blockY, offscreen, "NORMAL");
+      return;
+    }
 
 
     // Create a tiny block image (one pixel per cell)
@@ -144,10 +158,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       }
     }
 
-    // Put image at 1:1 resolution, then scale drawImage
-    const offscreen = document.createElement('canvas');
-    offscreen.width = this.blockSize;
-    offscreen.height = this.blockSize;
     const offCtx = offscreen.getContext('2d')!;
     offCtx.putImageData(imageData, 0, 0);
     this.drawRectangleBorder(blockX, blockY, offscreen, "NORMAL");
@@ -270,11 +280,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
   }
 
-  // Public methods for external control
-  public getKey(blockX: number, blockY: number): string {
-    return `${blockX}/${blockY}`;
-  }
-
   public zoomToFit() {
     // Calculate appropriate zoom level to fit content
     // This would need to be implemented based on your data bounds
@@ -301,6 +306,5 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     return this.lastVisibleBlocks.size;
   }
 
-  public selectedBlock: {x: number; y: number} | null = null;
 }
 

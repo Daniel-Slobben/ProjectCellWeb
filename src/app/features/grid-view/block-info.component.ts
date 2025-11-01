@@ -1,6 +1,8 @@
 import {Component, Input} from '@angular/core'
 import {FormsModule} from '@angular/forms';
 import {HttpClient} from '@angular/common/http';
+import {BlockService} from './block-service';
+import {Utils} from './utils.component';
 
 @Component({
   selector: 'block-info',
@@ -21,6 +23,8 @@ import {HttpClient} from '@angular/common/http';
         class="w-full"
       />      <input type="number" [(ngModel)]="amountLiveness"/>
       <button (click)="setRandom()">setRandom</button>
+      <button (click)="setEditTrue()">setEditTrue</button>/
+      <button (click)="setEditFalse()">setEditFalse</button>/
     </div>
   `
 })
@@ -31,7 +35,15 @@ export class BlockInfoComponent {
   @Input() blockSize!: number;
   @Input() amountLiveness: number = 5;
 
-  constructor(private httpClient: HttpClient) {}
+  constructor(private httpClient: HttpClient, private blockService: BlockService, private utils: Utils) {}
+
+  setEditTrue() {
+    this.blockService.setEdit(this.x, this.y, true);
+  }
+
+  setEditFalse() {
+    this.blockService.setEdit(this.x, this.y, false);
+  }
 
   setRandom() {
     const matrix: boolean[][] = Array.from({ length: this.blockSize}, () => Array(this.blockSize).fill(false));
@@ -41,7 +53,9 @@ export class BlockInfoComponent {
       }
     }
     console.log(matrix);
-    this.httpClient.put(`/gen-api/block/${this.x}/${this.y}/set-block`, matrix).subscribe((data) => {});
+    this.httpClient.put(`/gen-api/block/${this.x}/${this.y}/set-block`, matrix).subscribe((data) => {
+      this.blockService.addBlock(this.utils.getKey(this.x, this.y))
+    });
   }
 
   updateSlider() {

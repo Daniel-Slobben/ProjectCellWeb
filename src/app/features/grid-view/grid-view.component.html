@@ -1,4 +1,3 @@
-<!-- grid-view.component.html -->
 <div class="grid-container">
   <canvas
     #gridCanvas
@@ -15,15 +14,7 @@
     [blockSize] = "this.blockSize"
   ></block-info>
 
-  <!-- Optional: Add controls for debugging/testing -->
-  <div class="controls" [style.margin-top]="'10px'">
-    <button (click)="zoomToFit()" [style.margin-right]="'10px'">Zoom to Fit</button>
-    <button (click)="centerOn(0, 0)" [style.margin-right]="'10px'">Center Origin</button>
-
-    <div [style.margin-top]="'5px'" [style.font-size]="'12px'" [style.color]="'#666'">
-      Zoom: {{ currentZoom.toFixed(1) }}x |
-      Visible Blocks: {{ visibleBlockCount }} |
-      Offset: ({{ currentOffset.x.toFixed(1) }}, {{ currentOffset.y.toFixed(1) }})
-    </div>
-  </div>
+  @if (false) {
+    <runner-info></runner-info>
+  }
 </div>
