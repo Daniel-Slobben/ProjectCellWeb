@@ -3,7 +3,7 @@ import {FormsModule} from '@angular/forms';
 import {firstValueFrom} from 'rxjs';
 import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
-import {BlockInfoComponent} from './block-info.component';
+import {SelectedBlockComponent} from '../selected-block/selected-block.component';
 import {NgIf} from '@angular/common';
 import {Utils} from './utils.component';
 import {RunnerInfoComponent} from '../runner-info/runner-info.component';
@@ -14,7 +14,7 @@ import {Application} from 'pixi.js';
   standalone: true,
   templateUrl: './grid-view.component.html',
   styleUrls: ['./grid-view.component.css'],
-  imports: [FormsModule, BlockInfoComponent, NgIf, RunnerInfoComponent]
+  imports: [FormsModule, SelectedBlockComponent, NgIf, RunnerInfoComponent]
 })
 export class GridViewComponent implements AfterViewInit, OnDestroy {
 
@@ -22,7 +22,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   protected blockSize: number = 10;
   private cellSize = 8.7;
-  private minCellSize: number = 5;
+  private minCellSize: number = 4;
   private maxCellSize: number = 20;
   private canvasWidth = window.screen.width - 400;
   private canvasHeight = window.innerHeight - 30;

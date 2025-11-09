@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import {Injectable} from '@angular/core';
 import {IMessage, RxStomp} from '@stomp/rx-stomp';
 import {Subscription} from 'rxjs';
 import {HttpClient} from '@angular/common/http'
@@ -18,13 +18,10 @@ export class BlockService {
   }
 
   private configureWebSocket() {
+
     this.stompClient.configure({
-      webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
-      connectHeaders: {},
-      debug: (msg) => {
-        console.log(msg);
-      },
-      reconnectDelay: 200,
+      webSocketFactory: () => new SockJS('http://localhost:8080/ws'), connectHeaders: {}, reconnectDelay: 100,
+
     });
     this.stompClient.activate();
 
@@ -38,27 +35,34 @@ export class BlockService {
     return this.subscriptions.get(key);
   }
 
-  public addBlock(key : string) {
+  public addBlock(key: string) {
+    console.log("subbing to " + key);
+    // Fetch initial block with http
+    this.httpClient.get<boolean[][]>(`/gen-api/block/${key}?isUpdating=true`).subscribe((data) => {
+      if (this.getBlock(key) === undefined) {
+        this.updateBlock(key, data)
+      }
+    });
+
     const topic = `/topic/block/${key}`;
     const subscription = this.stompClient.watch(topic).subscribe((message: IMessage) => {
       const data = JSON.parse(message.body);
       this.updateBlock(key, data);
     });
     this.subscriptions.set(key, subscription);
+    this.setEditWithKey(key, false)
+  }
 
-    // Fetch initial block with http
-    this.blockData.set(key, undefined);
-    this.httpClient.get<boolean[][]>(`/gen-api/block/${key}?isUpdating=true`).subscribe((data) => {
-      if (this.getBlock(key) === undefined) {
-        this.updateBlock(key, data)
-      }
-    });
+  public setGhostBlock(key: string, body: boolean[][]) {
+    this.blockData.set(key, body);
+    this.setEditWithKey(key, true);
   }
 
   updateVisible(visibleKeys: Set<string>) {
-    // Its probably more efficient to only remove it after a little while
+
     this.subscriptions.forEach((sub, key) => {
       if (!visibleKeys.has(key)) {
+        console.log("deleteing" + key);
         sub.unsubscribe();
         this.subscriptions.delete(key);
         this.blockData.delete(key);
@@ -83,11 +87,16 @@ export class BlockService {
   }
 
   setEdit(x: number, y: number, b: boolean) {
+    this.setEditWithKey(this.utils.getKey(x, y), b);
+  }
+
+  setEditWithKey(key: string, b: boolean) {
     if (b) {
-      this.noEditKey = this.utils.getKey(x, y);
-    }
-    else {
+      this.noEditKey = key;
+    } else {
       this.noEditKey = undefined;
     }
   }
+
+
 }

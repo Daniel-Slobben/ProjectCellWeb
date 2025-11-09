@@ -1,0 +1,32 @@
+<div class="block-info p-4 border rounded bg-white shadow">
+  <h3 class="title text-lg font-bold mb-2">Block Info</h3>
+
+  <p class="coords mb-2">X: {{ x }} &nbsp; Y: {{ y }}</p>
+
+  <!-- Liveness amount input -->
+  <input
+    type="number"
+    [(ngModel)]="amountLiveness"
+    class="liveness-input mb-2 w-full p-1 border rounded"
+  />
+
+  <!-- Action buttons -->
+  <div class="buttons flex flex-wrap gap-2">
+    <button (click)="setRandom()" class="btn btn-primary">
+      Set Random
+    </button>
+
+    <button (click)="setEditTrue()" class="btn btn-success">
+      Set Edit True
+    </button>
+
+    <button (click)="setEditFalse()" class="btn btn-danger">
+      Set Edit False
+    </button>
+
+    <!-- NEW: push to server -->
+    <button (click)="pushToServer()" class="btn btn-outline">
+      Push to Server
+    </button>
+  </div>
+</div>
