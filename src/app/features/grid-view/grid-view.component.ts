@@ -110,10 +110,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       for (let blockY = startBlockY; blockY <= endBlockY; blockY++) {
         const key = this.utils.getKey(blockX, blockY);
         currentVisibleBlocks.add(key);
-
-        if (this.blockService.getSubscription(key) == undefined) {
-          this.blockService.addBlock(key);
-        }
         this.drawBlockWithImageData(blockX, blockY);
       }
     }

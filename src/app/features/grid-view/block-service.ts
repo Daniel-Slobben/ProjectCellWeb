@@ -1,19 +1,24 @@
 import {Injectable} from '@angular/core';
 import {IMessage, RxStomp} from '@stomp/rx-stomp';
-import {Subscription} from 'rxjs';
 import {HttpClient} from '@angular/common/http'
 import SockJS from 'sockjs-client';
 import {Utils} from './utils.component';
+import {UpdateBlocks} from '../../requests/UpdateBlocks';
+import {v4 as uuidv4} from 'uuid';
+import {Block} from '../../requests/Block';
 
 @Injectable({providedIn: 'root'})
 export class BlockService {
   private stompClient: RxStomp;
-  private subscriptions = new Map<string, Subscription>();
+  private clientId: string;
+  private blocksToRemove: string[] = [];
+  private activeBlocks: string[] = [];
   private blockData = new Map<string, boolean[][] | undefined>();
   private noEditKey: string | undefined;
 
   constructor(private httpClient: HttpClient, private utils: Utils) {
     this.stompClient = new RxStomp();
+    this.clientId = uuidv4();
     this.configureWebSocket();
   }
 
@@ -25,32 +30,20 @@ export class BlockService {
     });
     this.stompClient.activate();
 
-    // Log connection status
     this.stompClient.connected$.subscribe(() => {
       console.log('Connected to WebSocket');
     });
-  }
-
-  public getSubscription(key: string): Subscription | undefined {
-    return this.subscriptions.get(key);
-  }
-
-  public addBlock(key: string) {
-    console.log("subbing to " + key);
-    // Fetch initial block with http
-    this.httpClient.get<boolean[][]>(`/gen-api/block/${key}?isUpdating=true`).subscribe((data) => {
-      if (this.getBlock(key) === undefined) {
-        this.updateBlock(key, data)
-      }
-    });
-
-    const topic = `/topic/block/${key}`;
+    const topic = "/topic/" + this.clientId;
+    console.log(topic);
     const subscription = this.stompClient.watch(topic).subscribe((message: IMessage) => {
-      const data = JSON.parse(message.body);
-      this.updateBlock(key, data);
+      const data : Block[] = JSON.parse(message.body);
+      data.forEach(block => {
+        const key : string = this.utils.getKey(block.x, block.y);
+        if (this.noEditKey != key) {
+          this.blockData.set(key, block.cells)
+        }
+      })
     });
-    this.subscriptions.set(key, subscription);
-    this.setEditWithKey(key, false)
   }
 
   public setGhostBlock(key: string, body: boolean[][]) {
@@ -59,23 +52,26 @@ export class BlockService {
   }
 
   updateVisible(visibleKeys: Set<string>) {
-
-    this.subscriptions.forEach((sub, key) => {
+    const originalActiveBlocks = Object.assign([], this.activeBlocks);
+    this.blocksToRemove = [];
+    this.activeBlocks.forEach((key) => {
       if (!visibleKeys.has(key)) {
-        console.log("deleteing" + key);
-        sub.unsubscribe();
-        this.subscriptions.delete(key);
         this.blockData.delete(key);
-        this.httpClient.get<boolean[][]>(`/gen-api/block/${key}?isUpdating=false`).subscribe((data) => {
-          this.updateBlock(key, data)
-        });
+        this.blocksToRemove.push(key);
       }
     });
-  }
+    this.activeBlocks = [];
+    visibleKeys.forEach((key) => {
+      this.activeBlocks.push(key);
+    })
+    const newActiveBlocks = this.activeBlocks.filter(key => !originalActiveBlocks.includes(key)).map(key => key);
 
-  updateBlock(key: string, data: boolean[][]) {
-    if (key === this.noEditKey) return;
-    this.blockData.set(key, data);
+    if (this.blocksToRemove.length > 0 || newActiveBlocks.length > 0) {
+      this.stompClient.publish({
+        destination: '/update-requested-blocks',
+        body: JSON.stringify(new UpdateBlocks(this.clientId, this.blocksToRemove, newActiveBlocks))
+      })
+    }
   }
 
   getBlock(key: string): boolean[][] | undefined {
@@ -97,6 +93,4 @@ export class BlockService {
       this.noEditKey = undefined;
     }
   }
-
-
 }

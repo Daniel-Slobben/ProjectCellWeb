@@ -49,23 +49,14 @@ export class SelectedBlockComponent {
     this.blockService.setGhostBlock(this.utils.getKey(this.x, this.y), matrix);
   }
 
-  /** New feature – push the current block matrix to the backend */
   pushToServer(): void {
     const matrix = this.blockService.getBlock(this.utils.getKey(this.x, this.y));
 
     if (matrix !== undefined) {
-      this.httpClient
-        .put(`/gen-api/block/${this.x}/${this.y}/set-block`, matrix)
-        .subscribe(() => {
-          // optionally refresh local state after a successful PUT
-          this.blockService.addBlock(this.utils.getKey(this.x, this.y));
-        });
+      console.log('Pushing block update to server!');
+      this.httpClient.put(`/gen-api/block/${this.x}/${this.y}/set-block`, matrix).subscribe();
     } else {
       console.warn('Block not found when pushing to server!');
     }
-  }
-
-  updateSlider(): void {
-    this.amountLiveness = 21 - this.sliderValue;
   }
 }
