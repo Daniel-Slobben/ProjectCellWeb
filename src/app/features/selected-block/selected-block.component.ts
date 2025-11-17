@@ -55,6 +55,7 @@ export class SelectedBlockComponent {
     if (matrix !== undefined) {
       console.log('Pushing block update to server!');
       this.httpClient.put(`/gen-api/block/${this.x}/${this.y}/set-block`, matrix).subscribe();
+      this.blockService.setEdit(this.x, this.y, false);
     } else {
       console.warn('Block not found when pushing to server!');
     }
