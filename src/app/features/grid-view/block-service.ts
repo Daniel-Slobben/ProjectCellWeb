@@ -25,7 +25,7 @@ export class BlockService {
   private configureWebSocket() {
 
     this.stompClient.configure({
-      webSocketFactory: () => new SockJS('http://localhost:8080/ws'), connectHeaders: {}, reconnectDelay: 100,
+      webSocketFactory: () => new SockJS('/gen-api/ws'), connectHeaders: {}, reconnectDelay: 100,
 
     });
     this.stompClient.activate();

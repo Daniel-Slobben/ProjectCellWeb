@@ -22,7 +22,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   protected blockSize: number = 10;
   private cellSize = 8.7;
-  private minCellSize: number = 2;
+  private minCellSize: number = 1;
   private maxCellSize: number = 20;
   private canvasWidth = window.screen.width - 400;
   private canvasHeight = window.innerHeight - 30;
@@ -106,11 +106,13 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
 
-    for (let blockX = startBlockX; blockX <= endBlockX; blockX++) {
-      for (let blockY = startBlockY; blockY <= endBlockY; blockY++) {
+    for (let blockX = startBlockX-1; blockX <= endBlockX+1; blockX++) {
+      for (let blockY = startBlockY-1; blockY <= endBlockY+1; blockY++) {
         const key = this.utils.getKey(blockX, blockY);
-        currentVisibleBlocks.add(key);
-        this.drawBlockWithImageData(blockX, blockY);
+        currentVisibleBlocks.add(key)
+        if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
+          this.drawBlockWithImageData(blockX, blockY);
+        }
       }
     }
     this.blockService.updateVisible(currentVisibleBlocks);
