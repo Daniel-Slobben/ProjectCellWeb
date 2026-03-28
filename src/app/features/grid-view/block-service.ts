@@ -42,19 +42,18 @@ export class BlockService {
     console.log(topic);
 
     this.stompClient.watch(topic).subscribe((message: IMessage) => {
-      const data : Block[] = JSON.parse(message.body);
-      data.forEach(block => {
-        const key : string = this.utils.getKey(block.x, block.y);
-        if (this.noEditKey != key) {
-          try {
-            let cells = this.javaBitSetBase64ToBoolean2D(block.encodedCells, this.blockSize, this.blockSize);
-            this.blockData.set(key, cells)
-          } catch {
-            console.log("Error decoding block {} {}");
-          }
-        }
-      })
+      this.receiveBlockList(JSON.parse(message.body));
     });
+  }
+
+  private receiveBlockList(blocks : Block[]) {
+    blocks.forEach(block => {
+      const key: string = this.utils.getKey(block.x, block.y);
+      if (this.noEditKey != key) {
+        let cells = this.javaBitSetBase64ToBoolean2D(block.encodedCells, this.blockSize, this.blockSize);
+        this.blockData.set(key, cells)
+      }
+    })
   }
 
   public setGhostBlock(key: string, body: boolean[][]) {
@@ -78,11 +77,10 @@ export class BlockService {
     const newActiveBlocks = this.activeBlocks.filter(key => !originalActiveBlocks.includes(key)).map(key => key);
 
     if (this.blocksToRemove.length > 0 || newActiveBlocks.length > 0) {
-      console.log("Sending update request: new blocks: " + newActiveBlocks + " removed blocks: " + this.blocksToRemove + "");
-      this.stompClient.publish({
-        destination: '/update-requested-blocks',
-        body: JSON.stringify(new UpdateBlocks(this.clientId, this.blocksToRemove, newActiveBlocks))
-      })
+      this.httpClient.post<Block[]>('/gen-api/client-update', JSON.stringify(new UpdateBlocks(this.clientId, this.blocksToRemove, newActiveBlocks)), {headers: {'Content-Type': 'application/json'}})
+        .subscribe((blocks: Block[]) => {
+          this.receiveBlockList(blocks);
+        })
     }
   }
 
@@ -107,11 +105,7 @@ export class BlockService {
   }
 
 
-  javaBitSetBase64ToBoolean2D(
-    base64: string,
-    rows: number,
-    cols: number
-  ): boolean[][] {
+  javaBitSetBase64ToBoolean2D(base64: string, rows: number, cols: number): boolean[][] {
 
     const binaryString = atob(base64);
     const bytes = new Uint8Array(binaryString.length);
