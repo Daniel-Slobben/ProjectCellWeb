@@ -1,4 +1,4 @@
-import {Injectable} from '@angular/core';
+import {Injectable, OnDestroy} from '@angular/core';
 import {IMessage, RxStomp} from '@stomp/rx-stomp';
 import {HttpClient} from '@angular/common/http'
 import SockJS from 'sockjs-client';
@@ -6,9 +6,10 @@ import {Utils} from './utils.component';
 import {UpdateBlocks} from '../../requests/UpdateBlocks';
 import {v4 as uuidv4} from 'uuid';
 import {Block} from '../../requests/Block';
+import {Subscription} from 'rxjs';
 
 @Injectable({providedIn: 'root'})
-export class BlockService {
+export class BlockService implements OnDestroy{
   private readonly stompClient: RxStomp;
   private readonly clientId: string;
   private readonly blockData = new Map<string, boolean[][] | undefined>();
@@ -18,10 +19,18 @@ export class BlockService {
   private activeBlocks: string[] = [];
   private noEditKey: string | undefined;
 
+  private subscription?: Subscription;
+
   constructor(private httpClient: HttpClient, private utils: Utils) {
     this.stompClient = new RxStomp();
     this.clientId = uuidv4();
     this.configureWebSocket();
+  }
+
+  ngOnDestroy() {
+    if (this.subscription) {
+      this.subscription.unsubscribe();
+    }
   }
 
   public setBlockSize(blockSize: number) {
@@ -35,9 +44,10 @@ export class BlockService {
     });
     this.stompClient.activate();
 
-    this.stompClient.connected$.subscribe(() => {
+    this.subscription = this.stompClient.connected$.subscribe(() => {
       console.log('Connected to WebSocket');
     });
+
     const topic = "/topic/" + this.clientId;
     console.log(topic);
 

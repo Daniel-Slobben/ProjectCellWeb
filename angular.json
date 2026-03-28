@@ -76,7 +76,6 @@
               "zone.js/testing"
             ],
             "tsConfig": "tsconfig.spec.json",
-            "proxyConfig": "proxy.conf.json",
             "assets": [
               {
                 "glob": "**/*",
