@@ -21,6 +21,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   protected blockSize: number = 10;
+  private errorState = false;
   private cellSize = 8.7;
   private minCellSize: number = 1;
   private maxCellSize: number = 20;
@@ -67,8 +68,13 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     try {
       this.blockSize = await firstValueFrom(this.httpClient.get<number>('/gen-api/blocksize'));
+      this.httpClient.get<number>('/gen-api/blocksize').subscribe((blockSize) => {
+        this.blockSize = blockSize;
+        this.blockService.setBlockSize(blockSize);
+      });
     } catch (error) {
-      console.warn('Failed to fetch block size, using default:', this.blockSize);
+      console.error('Error fetching block size:', error);
+      this.errorState = true;
     }
 
     this.setupCanvasEvents();

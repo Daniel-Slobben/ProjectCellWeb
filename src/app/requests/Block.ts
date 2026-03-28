@@ -1,15 +1,17 @@
 export class Block {
-  cells: boolean[][];
+  encodedCells: string;
   generation: number;
   ghostBlock: boolean;
   x: number;
   y: number;
 
-  constructor(cells: boolean[][], generation: number, ghostBlock: boolean, x: number, y: number) {
-    this.cells = cells;
+  constructor(encodedCells: string, generation: number, ghostBlock: boolean, x: number, y: number) {
+    this.encodedCells = encodedCells;
     this.generation = generation;
     this.ghostBlock = ghostBlock;
     this.x = x;
     this.y = y;
+
   }
+
 }

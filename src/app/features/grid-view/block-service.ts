@@ -9,11 +9,13 @@ import {Block} from '../../requests/Block';
 
 @Injectable({providedIn: 'root'})
 export class BlockService {
-  private stompClient: RxStomp;
-  private clientId: string;
+  private readonly stompClient: RxStomp;
+  private readonly clientId: string;
+  private readonly blockData = new Map<string, boolean[][] | undefined>();
+
+  private blockSize: number = 0;
   private blocksToRemove: string[] = [];
   private activeBlocks: string[] = [];
-  private blockData = new Map<string, boolean[][] | undefined>();
   private noEditKey: string | undefined;
 
   constructor(private httpClient: HttpClient, private utils: Utils) {
@@ -22,11 +24,14 @@ export class BlockService {
     this.configureWebSocket();
   }
 
+  public setBlockSize(blockSize: number) {
+    this.blockSize = blockSize;
+  }
+
   private configureWebSocket() {
 
     this.stompClient.configure({
       webSocketFactory: () => new SockJS('/gen-api/ws'), connectHeaders: {}, reconnectDelay: 100,
-
     });
     this.stompClient.activate();
 
@@ -35,12 +40,18 @@ export class BlockService {
     });
     const topic = "/topic/" + this.clientId;
     console.log(topic);
-    const subscription = this.stompClient.watch(topic).subscribe((message: IMessage) => {
+
+    this.stompClient.watch(topic).subscribe((message: IMessage) => {
       const data : Block[] = JSON.parse(message.body);
       data.forEach(block => {
         const key : string = this.utils.getKey(block.x, block.y);
         if (this.noEditKey != key) {
-          this.blockData.set(key, block.cells)
+          try {
+            let cells = this.javaBitSetBase64ToBoolean2D(block.encodedCells, this.blockSize, this.blockSize);
+            this.blockData.set(key, cells)
+          } catch {
+            console.log("Error decoding block {} {}");
+          }
         }
       })
     });
@@ -67,6 +78,7 @@ export class BlockService {
     const newActiveBlocks = this.activeBlocks.filter(key => !originalActiveBlocks.includes(key)).map(key => key);
 
     if (this.blocksToRemove.length > 0 || newActiveBlocks.length > 0) {
+      console.log("Sending update request: new blocks: " + newActiveBlocks + " removed blocks: " + this.blocksToRemove + "");
       this.stompClient.publish({
         destination: '/update-requested-blocks',
         body: JSON.stringify(new UpdateBlocks(this.clientId, this.blocksToRemove, newActiveBlocks))
@@ -92,5 +104,36 @@ export class BlockService {
     } else {
       this.noEditKey = undefined;
     }
+  }
+
+
+  javaBitSetBase64ToBoolean2D(
+    base64: string,
+    rows: number,
+    cols: number
+  ): boolean[][] {
+
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    const getBit = (bitIndex: number): boolean => {
+      const byteIndex = bitIndex >>> 3;
+      const bitOffset = bitIndex & 7;
+
+      return ((bytes[byteIndex] >> bitOffset) & 1) === 1;
+    };
+
+    const result: boolean[][] = [];
+    for (let row = 0; row < rows; row++) {
+      result[row] = [];
+      for (let col = 0; col < cols; col++) {
+        result[row][col] = getBit(row * cols + col);
+      }
+    }
+
+    return result;
   }
 }
