@@ -2,7 +2,6 @@
   "/gen-api": {
     "target": "http://localhost:8080",
     "secure": false,
-    "logLevel": "debug",
-    "pathRewrite": {"^/gen-api" : "/gen-api/"}
+    "logLevel": "debug"
   }
 }

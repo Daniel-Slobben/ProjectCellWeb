@@ -7,7 +7,6 @@ import {SelectedBlockComponent} from '../selected-block/selected-block.component
 import {NgIf} from '@angular/common';
 import {Utils} from './utils.component';
 import {RunnerInfoComponent} from '../runner-info/runner-info.component';
-import {Application} from 'pixi.js';
 
 @Component({
   selector: 'grid-view',
@@ -48,7 +47,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   async ngAfterViewInit() {
-    const app = new Application();
     if (!this.canvasRef?.nativeElement) {
       console.error('Canvas element not found. Make sure template has <canvas #gridCanvas></canvas>');
       return;
