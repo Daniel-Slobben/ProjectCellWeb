@@ -7,6 +7,7 @@ import {SelectedBlockComponent} from '../selected-block/selected-block.component
 import {NgIf} from '@angular/common';
 import {Utils} from './utils.component';
 import {RunnerInfoComponent} from '../runner-info/runner-info.component';
+import {Settings} from '../../requests/Settings';
 
 @Component({
   selector: 'grid-view',
@@ -19,10 +20,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
 
-  protected blockSize: number = 10;
+  protected blockSize: number = 500;
   private errorState = false;
   private cellSize = 8.7;
-  private minCellSize: number = 1;
+  private minCellSize: number = 0.8;
   private maxCellSize: number = 20;
   private canvasWidth = window.screen.width - 400;
   private canvasHeight = window.innerHeight - 30;
@@ -46,7 +47,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   constructor(private httpClient: HttpClient, private blockService: BlockService, private utils: Utils) {
   }
 
-  async ngAfterViewInit() {
+  ngAfterViewInit() {
     if (!this.canvasRef?.nativeElement) {
       console.error('Canvas element not found. Make sure template has <canvas #gridCanvas></canvas>');
       return;
@@ -64,16 +65,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     // Set canvas rendering optimizations
     this.ctx.imageSmoothingEnabled = false; // Crisp pixel rendering
 
-    try {
-      this.blockSize = await firstValueFrom(this.httpClient.get<number>('/gen-api/blocksize'));
-      this.httpClient.get<number>('/gen-api/blocksize').subscribe((blockSize) => {
-        this.blockSize = blockSize;
-        this.blockService.setBlockSize(blockSize);
+      this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
+        this.blockSize = settings.blockSize;
+        this.blockService.setBlockSize(settings.blockSize);
+
+        this.centerOn(settings.x * this.blockSize, settings.y * this.blockSize);
       });
-    } catch (error) {
-      console.error('Error fetching block size:', error);
-      this.errorState = true;
-    }
 
     this.setupCanvasEvents();
     this.startRenderLoop();

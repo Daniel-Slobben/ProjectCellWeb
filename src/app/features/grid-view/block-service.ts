@@ -40,7 +40,7 @@ export class BlockService implements OnDestroy{
   private configureWebSocket() {
 
     this.stompClient.configure({
-      webSocketFactory: () => new SockJS('/gen-api/ws'), connectHeaders: {}, reconnectDelay: 100,
+      webSocketFactory: () => new SockJS('/ws'), connectHeaders: {}, reconnectDelay: 100,
     });
     this.stompClient.activate();
 
