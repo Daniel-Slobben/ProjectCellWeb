@@ -23,7 +23,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   protected blockSize: number = 500;
   private errorState = false;
   private cellSize = 8.7;
-  private minCellSize: number = 0.8;
+  private minCellSize: number = 0.5;
   private maxCellSize: number = 20;
   private canvasWidth = window.screen.width - 400;
   private canvasHeight = window.innerHeight - 30;

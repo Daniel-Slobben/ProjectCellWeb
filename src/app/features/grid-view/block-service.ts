@@ -61,7 +61,9 @@ export class BlockService implements OnDestroy{
       const key: string = this.utils.getKey(block.x, block.y);
       if (this.noEditKey != key) {
         let cells = this.javaBitSetBase64ToBoolean2D(block.encodedCells, this.blockSize, this.blockSize);
-        this.blockData.set(key, cells)
+        cells.then((c) => {
+          this.blockData.set(key, c)
+        })
       }
     })
   }
@@ -115,18 +117,25 @@ export class BlockService implements OnDestroy{
   }
 
 
-  javaBitSetBase64ToBoolean2D(base64: string, rows: number, cols: number): boolean[][] {
+  async javaBitSetBase64ToBoolean2D(base64: string, rows: number, cols: number): Promise<boolean[][]> {
 
+    // Step 1: Base64 → Uint8Array
     const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
+    const compressedBytes = new Uint8Array(binaryString.length);
     for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+      compressedBytes[i] = binaryString.charCodeAt(i);
     }
 
+    // Step 2: GZIP decompress
+    const ds = new DecompressionStream("gzip");
+    const decompressedStream = new Blob([compressedBytes]).stream().pipeThrough(ds);
+    const decompressedBuffer = await new Response(decompressedStream).arrayBuffer();
+    const bytes = new Uint8Array(decompressedBuffer);
+
+    // Step 3: Read bits (same as before)
     const getBit = (bitIndex: number): boolean => {
       const byteIndex = bitIndex >>> 3;
       const bitOffset = bitIndex & 7;
-
       return ((bytes[byteIndex] >> bitOffset) & 1) === 1;
     };
 
@@ -140,4 +149,5 @@ export class BlockService implements OnDestroy{
 
     return result;
   }
+
 }

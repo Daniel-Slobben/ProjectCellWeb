@@ -18,6 +18,10 @@
               "zone.js",
               "src/polyfills.ts"
             ],
+            "allowedCommonJsDependencies": [
+                "sockjs-client",
+                "@stomp/stompjs"
+            ],
             "tsConfig": "tsconfig.app.json",
             "assets": [
               {
