@@ -1,6 +1,5 @@
 import {AfterViewInit, Component, ElementRef, OnDestroy, ViewChild,} from '@angular/core';
 import {FormsModule} from '@angular/forms';
-import {firstValueFrom} from 'rxjs';
 import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import {SelectedBlockComponent} from '../selected-block/selected-block.component';
@@ -21,9 +20,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   protected blockSize: number = 500;
-  private errorState = false;
+  private isLoading = true;
   private cellSize = 8.7;
-  private minCellSize: number = 0.5;
+  private minCellSize: number = 1;
   private maxCellSize: number = 20;
   private canvasWidth = window.screen.width - 400;
   private canvasHeight = window.innerHeight - 30;
@@ -63,7 +62,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.canvasRef.nativeElement.height = this.canvasHeight;
 
     // Set canvas rendering optimizations
-    this.ctx.imageSmoothingEnabled = false; // Crisp pixel rendering
+    this.ctx.imageSmoothingEnabled = false;
 
       this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
         this.blockSize = settings.blockSize;
@@ -105,8 +104,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const endBlockY = Math.floor((this.cellOffsetY + this.canvasHeight / this.cellSize) / this.blockSize);
     const currentVisibleBlocks = new Set<string>();
 
-    this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
-
     for (let blockX = startBlockX-1; blockX <= endBlockX+1; blockX++) {
       for (let blockY = startBlockY-1; blockY <= endBlockY+1; blockY++) {
         const key = this.utils.getKey(blockX, blockY);
@@ -122,7 +119,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       const offscreen = document.createElement('canvas');
       offscreen.width = this.blockSize;
       offscreen.height = this.blockSize;
-      this.drawRectangleBorder(this.selectedBlock.x, this.selectedBlock.y, offscreen, "SELECTED");
     }
 
     this.lastVisibleBlocks = currentVisibleBlocks;
@@ -136,20 +132,19 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     let data = this.blockService.getBlock(this.utils.getKey(blockX, blockY));
     if (!data) {
-      this.drawRectangleBorder(blockX, blockY, offscreen, "NORMAL");
       return;
     }
-
 
     // Create a tiny block image (one pixel per cell)
     const imageData = this.ctx.createImageData(this.blockSize, this.blockSize);
     const pixels = imageData.data;
 
     for (let y = 0; y < this.blockSize; y++) {
+      const yCol = y * this.blockSize;
       for (let x = 0; x < this.blockSize; x++) {
         const cell = data?.[x]?.[y];
         const color = cell ? 0 : 255; // black or white
-        const index = (y * this.blockSize + x) * 4;
+        const index = (yCol + x) * 4;
         pixels[index] = color;     // R
         pixels[index + 1] = color; // G
         pixels[index + 2] = color; // B
@@ -159,10 +154,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     const offCtx = offscreen.getContext('2d')!;
     offCtx.putImageData(imageData, 0, 0);
-    this.drawRectangleBorder(blockX, blockY, offscreen, "NORMAL");
-  }
-
-  private drawRectangleBorder(blockX: number, blockY: number, offscreen: HTMLCanvasElement, color: string) {
     const baseX = blockX * this.blockSize;
     const baseY = blockY * this.blockSize;
 
@@ -172,14 +163,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.ctx.imageSmoothingEnabled = false;
     this.ctx.drawImage(offscreen, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
-    if (color == "NORMAL") {
-      this.ctx.lineWidth = 1;
-      this.ctx.strokeStyle = 'rgba(128, 128, 128, 255)';
-    } else {
-      this.ctx.lineWidth = 3;
-      this.ctx.strokeStyle = 'rgba(210, 0, 109, 1)';
-    }
-    this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
   }
 
   private onClick= (e: MouseEvent) => {
@@ -277,14 +260,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     // Zoom
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
-  }
-
-  public zoomToFit() {
-    // Calculate appropriate zoom level to fit content
-    // This would need to be implemented based on your data bounds
-    this.cellSize = 8.7;
-    this.cellOffsetX = 0;
-    this.cellOffsetY = 0;
   }
 
   public centerOn(worldX: number, worldY: number) {
