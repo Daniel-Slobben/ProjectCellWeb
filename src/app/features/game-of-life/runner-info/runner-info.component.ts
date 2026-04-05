@@ -12,7 +12,7 @@ import {HttpClient} from '@angular/common/http';
 })
 export class RunnerInfoComponent {
   runnerState!: state;
-  constructor(private httpClient: HttpClient, private changeDetectorRef: ChangeDetectorRef) {
+  constructor(private readonly httpClient: HttpClient, private readonly changeDetectorRef: ChangeDetectorRef) {
     setInterval(() => {
       this.updateRunnerInfo();}, 1000);
   }

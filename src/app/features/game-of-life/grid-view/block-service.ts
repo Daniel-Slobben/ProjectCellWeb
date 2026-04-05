@@ -3,9 +3,9 @@ import {IMessage, RxStomp} from '@stomp/rx-stomp';
 import {HttpClient} from '@angular/common/http'
 import SockJS from 'sockjs-client';
 import {Utils} from './utils.component';
-import {UpdateBlocks} from '../../requests/UpdateBlocks';
+import {UpdateBlocks} from '../../../requests/UpdateBlocks';
 import {v4 as uuidv4} from 'uuid';
-import {Block} from '../../requests/Block';
+import {Block} from '../../../requests/Block';
 import {Subscription} from 'rxjs';
 
 @Injectable({providedIn: 'root'})
@@ -70,7 +70,7 @@ export class BlockService implements OnDestroy{
 
   public setGhostBlock(key: string, body: boolean[][]) {
     this.blockData.set(key, body);
-    this.setEditWithKey(key, true);
+    this.setNoEditKeyTrue(key);
   }
 
   updateVisible(visibleKeys: Set<string>) {
@@ -105,17 +105,17 @@ export class BlockService implements OnDestroy{
   }
 
   setEdit(x: number, y: number, b: boolean) {
-    this.setEditWithKey(this.utils.getKey(x, y), b);
-  }
-
-  setEditWithKey(key: string, b: boolean) {
     if (b) {
-      this.noEditKey = key;
+      this.setNoEditKeyTrue(this.utils.getKey(x, y));
     } else {
       this.noEditKey = undefined;
     }
+
   }
 
+  setNoEditKeyTrue(key: string) {
+    this.noEditKey = key;
+  }
 
   async javaBitSetBase64ToBoolean2D(base64: string, rows: number, cols: number): Promise<boolean[][]> {
 

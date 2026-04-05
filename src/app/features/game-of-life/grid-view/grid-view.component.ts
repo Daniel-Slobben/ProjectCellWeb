@@ -3,16 +3,14 @@ import {FormsModule} from '@angular/forms';
 import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import {Utils} from './utils.component';
-import {Settings} from '../../requests/Settings';
-import {MenuComponent} from '../menu/menu.component';
-import {Menu} from '../menu/Menu';
+import {Settings} from '../../../requests/Settings';
 
 @Component({
   selector: 'grid-view',
   standalone: true,
   templateUrl: './grid-view.component.html',
   styleUrls: ['./grid-view.component.css'],
-  imports: [FormsModule, MenuComponent]
+  imports: [FormsModule]
 })
 export class GridViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
@@ -25,11 +23,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private readonly canvasWidth = window.screen.width;
   private readonly canvasHeight = window.innerHeight - 30;
 
-  protected menus: Menu[] = [
-    {name: 'Record', url: 'record'},
-    {name: 'Show grid borders', url: ''},
-    {name: 'Technical information', url: ''}
-  ]
 
   private cellOffsetX = 0;
   private cellOffsetY = 0;
@@ -46,7 +39,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   public selectedBlock: { x: number; y: number } | null = null;
   public editSelectedBlock: boolean = false;
 
-  constructor(private httpClient: HttpClient, private blockService: BlockService, private utils: Utils) {
+  constructor(private readonly httpClient: HttpClient, private readonly blockService: BlockService, private readonly utils: Utils) {
   }
 
   ngAfterViewInit() {
@@ -168,7 +161,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.ctx.drawImage(offscreen, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
   }
 
-  private onClick = (e: MouseEvent) => {
+  private readonly onClick = (e: MouseEvent) => {
     // Single Click
     if (e.detail === 1) {
       this.startDragging(e);
@@ -204,12 +197,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     // this.httpClient.get(`/gen-api/blockinfo/${blockX}/${blockY}`).subscribe(...);
   }
 
-  private onDragEnd = () => {
+  private readonly onDragEnd = () => {
     this.isDragging = false;
     this.canvasRef.nativeElement.style.cursor = 'grab';
   };
 
-  private onDragMove = (e: MouseEvent) => {
+  private readonly onDragMove = (e: MouseEvent) => {
     if (!this.isDragging) return;
 
     const dx = e.clientX - this.dragStartX;
@@ -226,7 +219,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.cellOffsetY -= movedY;
   };
 
-  private onWheel = (e: WheelEvent) => {
+  private readonly onWheel = (e: WheelEvent) => {
     e.preventDefault();
 
     const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
@@ -270,7 +263,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.cellOffsetY = worldY - (this.canvasHeight / this.cellSize) / 2;
   }
 
-  // Getters for debugging/info
   public get currentZoom(): number {
     return this.cellSize;
   }

@@ -1,13 +1,13 @@
 import {Component} from '@angular/core';
-import {GridViewComponent} from './features/grid-view/grid-view.component';
 import {MenuComponent} from './features/menu/menu.component';
+import {GameOfLifeComponent} from './features/game-of-life/game-of-life.component';
 
 @Component({
   standalone: true,
   selector: 'app-root',
   templateUrl: 'app.component.html',
   styleUrls: ['app.component.css'],
-  imports: [GridViewComponent, MenuComponent],
+  imports: [MenuComponent, GameOfLifeComponent],
 })
 export class AppComponent {
   menus = [

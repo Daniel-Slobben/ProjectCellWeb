@@ -6,7 +6,6 @@ import { Utils } from '../grid-view/utils.component';
 
 @Component({
   selector: 'block-info',
-  // <-- now using external files
   templateUrl: './selected-block.component.html',
   styleUrls: ['./selected-block.component.css'],
   standalone: true,
@@ -20,13 +19,11 @@ export class SelectedBlockComponent {
   @Input() amountLiveness: number = 5;
 
   constructor(
-    private httpClient: HttpClient,
-    private blockService: BlockService,
-    private utils: Utils
+    private readonly httpClient: HttpClient,
+    private readonly blockService: BlockService,
+    private readonly utils: Utils
   ) {}
 
-  /* ------------------------------------------------------------------ */
-  /* UI actions */
   setEditTrue(): void {
     this.blockService.setEdit(this.x, this.y, true);
   }
@@ -37,7 +34,7 @@ export class SelectedBlockComponent {
 
   setRandom(): void {
     const matrix: boolean[][] = Array.from({ length: this.blockSize }, () =>
-      Array(this.blockSize).fill(false)
+      new Array(this.blockSize).fill(false)
     );
 
     for (let x = 0; x < this.blockSize; x++) {
@@ -52,12 +49,12 @@ export class SelectedBlockComponent {
   pushToServer(): void {
     const matrix = this.blockService.getBlock(this.utils.getKey(this.x, this.y));
 
-    if (matrix !== undefined) {
+    if (matrix === undefined) {
+      console.warn('Block not found when pushing to server!');
+    } else {
       console.log('Pushing block update to server!');
       this.httpClient.put(`/gen-api/block/${this.x}/${this.y}/set-block`, matrix).subscribe();
       this.blockService.setEdit(this.x, this.y, false);
-    } else {
-      console.warn('Block not found when pushing to server!');
     }
   }
 }
