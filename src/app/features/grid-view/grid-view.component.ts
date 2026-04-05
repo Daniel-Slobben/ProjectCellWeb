@@ -2,31 +2,34 @@ import {AfterViewInit, Component, ElementRef, OnDestroy, ViewChild,} from '@angu
 import {FormsModule} from '@angular/forms';
 import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
-import {SelectedBlockComponent} from '../selected-block/selected-block.component';
-import {NgIf} from '@angular/common';
 import {Utils} from './utils.component';
-import {RunnerInfoComponent} from '../runner-info/runner-info.component';
 import {Settings} from '../../requests/Settings';
+import {MenuComponent} from '../menu/menu.component';
+import {Menu} from '../menu/Menu';
 
 @Component({
   selector: 'grid-view',
   standalone: true,
   templateUrl: './grid-view.component.html',
   styleUrls: ['./grid-view.component.css'],
-  imports: [FormsModule, SelectedBlockComponent, NgIf, RunnerInfoComponent]
+  imports: [FormsModule, MenuComponent]
 })
 export class GridViewComponent implements AfterViewInit, OnDestroy {
-
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   protected blockSize: number = 500;
   private isLoading = true;
   private cellSize = 8.7;
-  private minCellSize: number = 1;
-  private maxCellSize: number = 20;
-  private canvasWidth = window.screen.width - 400;
-  private canvasHeight = window.innerHeight - 30;
+  private readonly minCellSize: number = 1;
+  private readonly maxCellSize: number = 20;
+  private readonly canvasWidth = window.screen.width;
+  private readonly canvasHeight = window.innerHeight - 30;
 
+  protected menus: Menu[] = [
+    {name: 'Record', url: 'record'},
+    {name: 'Show grid borders', url: ''},
+    {name: 'Technical information', url: ''}
+  ]
 
   private cellOffsetX = 0;
   private cellOffsetY = 0;
@@ -40,7 +43,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private animationFrameId?: number;
   private lastVisibleBlocks = new Set<string>();
 
-  public selectedBlock: {x: number; y: number} | null = null;
+  public selectedBlock: { x: number; y: number } | null = null;
   public editSelectedBlock: boolean = false;
 
   constructor(private httpClient: HttpClient, private blockService: BlockService, private utils: Utils) {
@@ -64,12 +67,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     // Set canvas rendering optimizations
     this.ctx.imageSmoothingEnabled = false;
 
-      this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
-        this.blockSize = settings.blockSize;
-        this.blockService.setBlockSize(settings.blockSize);
+    this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
+      this.blockSize = settings.blockSize;
+      this.blockService.setBlockSize(settings.blockSize);
 
-        this.centerOn(settings.x * this.blockSize, settings.y * this.blockSize);
-      });
+      this.centerOn(settings.x * this.blockSize, settings.y * this.blockSize);
+    });
 
     this.setupCanvasEvents();
     this.startRenderLoop();
@@ -104,8 +107,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const endBlockY = Math.floor((this.cellOffsetY + this.canvasHeight / this.cellSize) / this.blockSize);
     const currentVisibleBlocks = new Set<string>();
 
-    for (let blockX = startBlockX-1; blockX <= endBlockX+1; blockX++) {
-      for (let blockY = startBlockY-1; blockY <= endBlockY+1; blockY++) {
+    for (let blockX = startBlockX - 1; blockX <= endBlockX + 1; blockX++) {
+      for (let blockY = startBlockY - 1; blockY <= endBlockY + 1; blockY++) {
         const key = this.utils.getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
@@ -143,7 +146,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       const yCol = y * this.blockSize;
       for (let x = 0; x < this.blockSize; x++) {
         const cell = data?.[x]?.[y];
-        const color = cell ? 0 : 255; // black or white
+        const color = cell ? 0: 255; // black or white
         const index = (yCol + x) * 4;
         pixels[index] = color;     // R
         pixels[index + 1] = color; // G
@@ -165,7 +168,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.ctx.drawImage(offscreen, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
   }
 
-  private onClick= (e: MouseEvent) => {
+  private onClick = (e: MouseEvent) => {
     // Single Click
     if (e.detail === 1) {
       this.startDragging(e);
@@ -259,7 +262,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     canvas.addEventListener('mousemove', this.onDragMove);
 
     // Zoom
-    canvas.addEventListener('wheel', this.onWheel, { passive: false });
+    canvas.addEventListener('wheel', this.onWheel, {passive: false});
   }
 
   public centerOn(worldX: number, worldY: number) {
@@ -272,7 +275,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     return this.cellSize;
   }
 
-  public get currentOffset(): {x: number, y: number} {
+  public get currentOffset(): { x: number, y: number } {
     return {x: this.cellOffsetX, y: this.cellOffsetY};
   }
 

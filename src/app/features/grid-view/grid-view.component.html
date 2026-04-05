@@ -4,17 +4,6 @@
     [style.border]="'1px solid #ccc'"
     [style.display]="'block'"
     [style.background-color]="'white'">
-    Your browser does not support the HTML5 Canvas element.
   </canvas>
-
-  <block-info
-    *ngIf="selectedBlock"
-    [x]="selectedBlock.x"
-    [y]="selectedBlock.y"
-    [blockSize] = "this.blockSize"
-  ></block-info>
-
-  @if (false) {
-    <runner-info></runner-info>
-  }
+  <app-menu [menus]="menus" [atTop]="false"></app-menu>
 </div>
