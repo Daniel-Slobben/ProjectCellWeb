@@ -23,10 +23,13 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private readonly canvasWidth = window.screen.width;
   private readonly canvasHeight = window.innerHeight - 30;
 
-
   private cellOffsetX = 0;
   private cellOffsetY = 0;
   private ctx!: CanvasRenderingContext2D;
+
+  private drawnGeneration = 0;
+  private drawnCellOffsetX = 0;
+  private drawnCellOffsetY = 0;
 
   // Drag state
   private isDragging = false;
@@ -94,6 +97,15 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private updateVisibleBlocks() {
+    if (this.drawnGeneration == this.blockService.getGeneration() &&
+      this.drawnCellOffsetX == this.cellOffsetX &&
+      this.drawnCellOffsetY == this.cellOffsetY) {
+      return;
+    }
+    this.drawnGeneration = this.blockService.getGeneration();
+    this.drawnCellOffsetX = this.cellOffsetX;
+    this.drawnCellOffsetY = this.cellOffsetY;
+
     const startBlockX = Math.floor(this.cellOffsetX / this.blockSize);
     const startBlockY = Math.floor(this.cellOffsetY / this.blockSize);
     const endBlockX = Math.floor((this.cellOffsetX + this.canvasWidth / this.cellSize) / this.blockSize);

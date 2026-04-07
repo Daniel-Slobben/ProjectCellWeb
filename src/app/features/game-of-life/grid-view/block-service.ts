@@ -15,6 +15,7 @@ export class BlockService implements OnDestroy{
   private readonly blockData = new Map<string, boolean[][] | undefined>();
 
   private blockSize: number = 0;
+  private generation: number = 0;
   private blocksToRemove: string[] = [];
   private activeBlocks: string[] = [];
   private noEditKey: string | undefined;
@@ -31,6 +32,10 @@ export class BlockService implements OnDestroy{
     if (this.subscription) {
       this.subscription.unsubscribe();
     }
+  }
+
+  public getGeneration(): number {
+    return this.generation;
   }
 
   public setBlockSize(blockSize: number) {
@@ -60,12 +65,15 @@ export class BlockService implements OnDestroy{
     blocks.forEach(block => {
       const key: string = this.utils.getKey(block.x, block.y);
       if (this.noEditKey != key) {
-        let cells = this.javaBitSetBase64ToBoolean2D(block.encodedCells, this.blockSize, this.blockSize);
+          let cells = this.javaBitSetBase64ToBoolean2D(block.encodedCells, this.blockSize, this.blockSize);
         cells.then((c) => {
           this.blockData.set(key, c)
         })
       }
     })
+    setTimeout(() => {
+      this.generation++;
+    }, 50)
   }
 
   public setGhostBlock(key: string, body: boolean[][]) {
