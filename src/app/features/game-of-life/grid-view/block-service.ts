@@ -7,6 +7,7 @@ import {UpdateBlocks} from '../../../requests/UpdateBlocks';
 import {v4 as uuidv4} from 'uuid';
 import {Block} from '../../../requests/Block';
 import {Subscription} from 'rxjs';
+import {decompressBlock} from 'lz4js';
 
 @Injectable({providedIn: 'root'})
 export class BlockService implements OnDestroy{
@@ -65,15 +66,11 @@ export class BlockService implements OnDestroy{
     blocks.forEach(block => {
       const key: string = this.utils.getKey(block.x, block.y);
       if (this.noEditKey != key) {
-          let cells = this.javaBitSetBase64ToBoolean2D(block.encodedCells, this.blockSize, this.blockSize);
-        cells.then((c) => {
-          this.blockData.set(key, c)
-        })
+          let cells = this.decodeLz4Block(block.encodedCells, this.blockSize);
+          this.blockData.set(key, cells)
       }
     })
-    setTimeout(() => {
-      this.generation++;
-    }, 50)
+    this.generation++;
   }
 
   public setGhostBlock(key: string, body: boolean[][]) {
@@ -125,33 +122,32 @@ export class BlockService implements OnDestroy{
     this.noEditKey = key;
   }
 
-  async javaBitSetBase64ToBoolean2D(base64: string, rows: number, cols: number): Promise<boolean[][]> {
-
+  private decodeLz4Block(encodedCells: string, blockSize: number): boolean[][] {
     // Step 1: Base64 → Uint8Array
-    const binaryString = atob(base64);
+    const binaryString = atob(encodedCells);
     const compressedBytes = new Uint8Array(binaryString.length);
     for (let i = 0; i < binaryString.length; i++) {
       compressedBytes[i] = binaryString.charCodeAt(i);
     }
 
-    // Step 2: GZIP decompress
-    const ds = new DecompressionStream("gzip");
-    const decompressedStream = new Blob([compressedBytes]).stream().pipeThrough(ds);
-    const decompressedBuffer = await new Response(decompressedStream).arrayBuffer();
-    const bytes = new Uint8Array(decompressedBuffer);
+    // Step 2: LZ4 decompress (sync!)
+    const expectedBytes = Math.ceil(blockSize * blockSize / 8);
+
+    const output = new Uint8Array(expectedBytes);
+    decompressBlock(compressedBytes, output, 0, compressedBytes.length, 0);
 
     // Step 3: Read bits (same as before)
     const getBit = (bitIndex: number): boolean => {
       const byteIndex = bitIndex >>> 3;
       const bitOffset = bitIndex & 7;
-      return ((bytes[byteIndex] >> bitOffset) & 1) === 1;
+      return ((output[byteIndex] >> bitOffset) & 1) === 1;
     };
 
     const result: boolean[][] = [];
-    for (let row = 0; row < rows; row++) {
+    for (let row = 0; row < blockSize; row++) {
       result[row] = [];
-      for (let col = 0; col < cols; col++) {
-        result[row][col] = getBit(row * cols + col);
+      for (let col = 0; col < blockSize; col++) {
+        result[row][col] = getBit(row * blockSize + col);
       }
     }
 

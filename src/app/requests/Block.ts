@@ -1,17 +1,11 @@
 export class Block {
-  encodedCells: string;
-  generation: number;
-  ghostBlock: boolean;
   x: number;
   y: number;
+  encodedCells: string;
 
-  constructor(encodedCells: string, generation: number, ghostBlock: boolean, x: number, y: number) {
-    this.encodedCells = encodedCells;
-    this.generation = generation;
-    this.ghostBlock = ghostBlock;
+  constructor(x: number, y: number, encodedCells: string) {
     this.x = x;
     this.y = y;
-
+    this.encodedCells = encodedCells;
   }
-
 }

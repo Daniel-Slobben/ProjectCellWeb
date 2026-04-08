@@ -67,7 +67,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.blockSize = settings.blockSize;
       this.blockService.setBlockSize(settings.blockSize);
 
-      this.centerOn(settings.x * this.blockSize, settings.y * this.blockSize);
+      this.centerOn(settings.x * this.blockSize + this.blockSize / 2, settings.y * this.blockSize + this.blockSize / 2);
     });
 
     this.setupCanvasEvents();
