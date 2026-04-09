@@ -17,7 +17,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   protected blockSize: number = 500;
   private isLoading = true;
-  private cellSize = 8.7;
+  private cellSize = 6;
+  private readonly blockTeleportOffset = 75;
   private readonly minCellSize: number = 1;
   private readonly maxCellSize: number = 20;
   private readonly canvasWidth = window.screen.width;
@@ -67,7 +68,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.blockSize = settings.blockSize;
       this.blockService.setBlockSize(settings.blockSize);
 
-      this.centerOn(settings.x * this.blockSize + this.blockSize / 2, settings.y * this.blockSize + this.blockSize / 2);
+      this.centerOn(settings.x * this.blockSize + this.blockSize / 2 + this.blockTeleportOffset, settings.y * this.blockSize + this.blockSize / 2 + this.blockTeleportOffset);
     });
 
     this.setupCanvasEvents();
