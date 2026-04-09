@@ -17,8 +17,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   protected blockSize: number = 500;
   private isLoading = true;
-  private cellSize = 6;
-  private readonly blockTeleportOffset = 75;
+  private cellSize = 4;
+  private readonly blockTeleportOffset = 100;
   private readonly minCellSize: number = 1;
   private readonly maxCellSize: number = 20;
   private readonly canvasWidth = window.screen.width;
@@ -66,7 +66,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
       this.blockSize = settings.blockSize;
-      this.blockService.setBlockSize(settings.blockSize);
+      this.blockService.blockSize = settings.blockSize;
+      this.blockService.clientId = settings.clientId;
+      this.blockService.setupWebSocket()
 
       this.centerOn(settings.x * this.blockSize + this.blockSize / 2 + this.blockTeleportOffset, settings.y * this.blockSize + this.blockSize / 2 + this.blockTeleportOffset);
     });

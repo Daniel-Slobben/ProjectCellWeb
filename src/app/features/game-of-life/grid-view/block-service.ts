@@ -12,10 +12,10 @@ import {decompressBlock} from 'lz4js';
 @Injectable({providedIn: 'root'})
 export class BlockService implements OnDestroy{
   private readonly stompClient: RxStomp;
-  private readonly clientId: string;
   private readonly blockData = new Map<string, boolean[][] | undefined>();
 
-  private blockSize: number = 0;
+  public blockSize: number = 0;
+  public clientId: string = "";
   private generation: number = 0;
   private blocksToRemove: string[] = [];
   private activeBlocks: string[] = [];
@@ -25,7 +25,6 @@ export class BlockService implements OnDestroy{
 
   constructor(private httpClient: HttpClient, private utils: Utils) {
     this.stompClient = new RxStomp();
-    this.clientId = uuidv4();
     this.configureWebSocket();
   }
 
@@ -39,10 +38,6 @@ export class BlockService implements OnDestroy{
     return this.generation;
   }
 
-  public setBlockSize(blockSize: number) {
-    this.blockSize = blockSize;
-  }
-
   private configureWebSocket() {
 
     this.stompClient.configure({
@@ -54,6 +49,9 @@ export class BlockService implements OnDestroy{
       console.log('Connected to WebSocket');
     });
 
+  }
+
+  public setupWebSocket() {
     const topic = "/topic/" + this.clientId;
     console.log(topic);
 

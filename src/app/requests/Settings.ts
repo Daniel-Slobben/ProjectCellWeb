@@ -1,11 +1,6 @@
-export class Settings {
-  blockSize: number;
-  x: number;
-  y: number;
-
-  constructor(blockSize: number, x: number, y: number) {
-    this.blockSize = blockSize;
-    this.x = x;
-    this.y = y;
-  }
+export interface Settings {
+  readonly blockSize: number;
+  readonly clientId: string;
+  readonly x: number;
+  readonly y: number;
 }
