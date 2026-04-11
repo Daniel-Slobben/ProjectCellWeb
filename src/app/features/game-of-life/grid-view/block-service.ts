@@ -6,21 +6,21 @@ import {Utils} from './utils.component';
 import {UpdateBlocks} from '../../../requests/UpdateBlocks';
 import {Block} from '../../../requests/Block';
 import {Subscription} from 'rxjs';
-import {decompressBlock} from 'lz4js';
 
 @Injectable({providedIn: 'root'})
-export class BlockService implements OnDestroy{
+export class BlockService implements OnDestroy {
   private readonly stompClient: RxStomp;
   private readonly blockData = new Map<string, ImageData | undefined>();
 
-  public blockSize: number = 0;
-  public clientId: string = "";
   private generation: number = 0;
   private blocksToRemove: string[] = [];
   private activeBlocks: string[] = [];
   private noEditKey: string | undefined;
+  private worker!: Worker;
 
-  public ctx!: CanvasRenderingContext2D;
+  private blockSize: number = 0;
+  private clientId: string = "";
+  private ctx!: CanvasRenderingContext2D;
 
   private subscription?: Subscription;
 
@@ -52,50 +52,29 @@ export class BlockService implements OnDestroy{
 
   }
 
-  public setupWebSocket() {
+  public setup(blockSize: number, clientId: string, ctx: CanvasRenderingContext2D) {
+    this.blockSize = blockSize;
+    this.clientId = clientId;
+    this.ctx = ctx;
+
+    this.worker = new Worker(new URL('/decompress-block.worker.ts', import.meta.url), {type: 'module'});
+
+    this.worker.postMessage({type: 'init', payload: {blockSize: this.blockSize}});
+    this.worker.onmessage = (e) => {
+      for (const { imageData, x, y } of e.data) {
+        if (this.noEditKey != this.utils.getKey(x, y)) {
+          this.blockData.set(this.utils.getKey(x, y), imageData);
+        }
+      }
+      this.generation++;
+    }
+
     const topic = "/topic/" + this.clientId;
     console.log(topic);
 
     this.stompClient.watch(topic).subscribe((message: IMessage) => {
-      this.receiveBlockList(JSON.parse(message.body));
+      this.worker.postMessage({type: 'payload', payload: {data: JSON.parse(message.body), instant: false}});
     });
-  }
-
-  private receiveBlockList(blocks : Block[]) {
-    blocks.forEach(block => {
-      const key: string = this.utils.getKey(block.x, block.y);
-      if (this.noEditKey != key) {
-          let cells = this.decodeLz4Block(block.encodedCells, this.blockSize);
-          this.blockData.set(key, this.getImageData(cells))
-      }
-    })
-    this.generation++;
-  }
-
-  public setGhostBlock(key: string, body: boolean[][]) {
-    this.blockData.set(key, this.getImageData(body));
-    this.setNoEditKeyTrue(key);
-  }
-
-  private getImageData(data: boolean[][]): ImageData  {
-    // Create a tiny block image (one pixel per cell)
-    const imageData = this.ctx.createImageData(this.blockSize, this.blockSize);
-
-    const pixels = imageData.data;
-
-    for (let y = 0; y < this.blockSize; y++) {
-      const yCol = y * this.blockSize;
-      for (let x = 0; x < this.blockSize; x++) {
-        const cell = data?.[x]?.[y];
-        const color = cell ? 0: 255; // black or white
-        const index = (yCol + x) * 4;
-        pixels[index] = color;     // R
-        pixels[index + 1] = color; // G
-        pixels[index + 2] = color; // B
-        pixels[index + 3] = 255;   // A
-      }
-    }
-    return imageData;
   }
 
   updateVisible(visibleKeys: Set<string>) {
@@ -116,17 +95,13 @@ export class BlockService implements OnDestroy{
     if (this.blocksToRemove.length > 0 || newActiveBlocks.length > 0) {
       this.httpClient.post<Block[]>('/gen-api/client-update', JSON.stringify(new UpdateBlocks(this.clientId, this.blocksToRemove, newActiveBlocks)), {headers: {'Content-Type': 'application/json'}})
         .subscribe((blocks: Block[]) => {
-          this.receiveBlockList(blocks);
+          this.worker.postMessage({type: 'payload', payload: {data: blocks, instant: true}});
         })
     }
   }
 
   getBlock(key: string): ImageData | undefined {
     return this.blockData.get(key);
-  }
-
-  setBlock(key: string, data: boolean[][]) {
-    this.blockData.set(key, this.getImageData(data));
   }
 
   setEdit(x: number, y: number, b: boolean) {
@@ -142,36 +117,6 @@ export class BlockService implements OnDestroy{
     this.noEditKey = key;
   }
 
-  private decodeLz4Block(encodedCells: string, blockSize: number): boolean[][] {
-    // Step 1: Base64 → Uint8Array
-    const binaryString = atob(encodedCells);
-    const compressedBytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      compressedBytes[i] = binaryString.charCodeAt(i);
-    }
 
-    // Step 2: LZ4 decompress (sync!)
-    const expectedBytes = Math.ceil(blockSize * blockSize / 8);
-
-    const output = new Uint8Array(expectedBytes);
-    decompressBlock(compressedBytes, output, 0, compressedBytes.length, 0);
-
-    // Step 3: Read bits (same as before)
-    const getBit = (bitIndex: number): boolean => {
-      const byteIndex = bitIndex >>> 3;
-      const bitOffset = bitIndex & 7;
-      return ((output[byteIndex] >> bitOffset) & 1) === 1;
-    };
-
-    const result: boolean[][] = [];
-    for (let row = 0; row < blockSize; row++) {
-      result[row] = [];
-      for (let col = 0; col < blockSize; col++) {
-        result[row][col] = getBit(row * blockSize + col);
-      }
-    }
-
-    return result;
-  }
 
 }

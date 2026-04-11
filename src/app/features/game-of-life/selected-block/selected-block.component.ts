@@ -43,7 +43,6 @@ export class SelectedBlockComponent {
       }
     }
 
-    this.blockService.setGhostBlock(this.utils.getKey(this.x, this.y), matrix);
   }
 
   pushToServer(): void {

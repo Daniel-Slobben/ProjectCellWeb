@@ -66,10 +66,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
       this.blockSize = settings.blockSize;
-      this.blockService.blockSize = settings.blockSize;
-      this.blockService.clientId = settings.clientId;
-      this.blockService.setupWebSocket()
-      this.blockService.ctx = this.ctx;
+      this.blockService.setup(settings.blockSize, settings.clientId, this.ctx)
 
       this.centerOn(settings.x * this.blockSize + this.blockSize / 2 + this.blockTeleportOffset, settings.y * this.blockSize + this.blockSize / 2 + this.blockTeleportOffset);
     });
