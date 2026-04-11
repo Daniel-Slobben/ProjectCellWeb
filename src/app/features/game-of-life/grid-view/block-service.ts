@@ -4,7 +4,6 @@ import {HttpClient} from '@angular/common/http'
 import SockJS from 'sockjs-client';
 import {Utils} from './utils.component';
 import {UpdateBlocks} from '../../../requests/UpdateBlocks';
-import {v4 as uuidv4} from 'uuid';
 import {Block} from '../../../requests/Block';
 import {Subscription} from 'rxjs';
 import {decompressBlock} from 'lz4js';
@@ -12,7 +11,7 @@ import {decompressBlock} from 'lz4js';
 @Injectable({providedIn: 'root'})
 export class BlockService implements OnDestroy{
   private readonly stompClient: RxStomp;
-  private readonly blockData = new Map<string, boolean[][] | undefined>();
+  private readonly blockData = new Map<string, ImageData | undefined>();
 
   public blockSize: number = 0;
   public clientId: string = "";
@@ -20,6 +19,8 @@ export class BlockService implements OnDestroy{
   private blocksToRemove: string[] = [];
   private activeBlocks: string[] = [];
   private noEditKey: string | undefined;
+
+  public ctx!: CanvasRenderingContext2D;
 
   private subscription?: Subscription;
 
@@ -65,15 +66,36 @@ export class BlockService implements OnDestroy{
       const key: string = this.utils.getKey(block.x, block.y);
       if (this.noEditKey != key) {
           let cells = this.decodeLz4Block(block.encodedCells, this.blockSize);
-          this.blockData.set(key, cells)
+          this.blockData.set(key, this.getImageData(cells))
       }
     })
     this.generation++;
   }
 
   public setGhostBlock(key: string, body: boolean[][]) {
-    this.blockData.set(key, body);
+    this.blockData.set(key, this.getImageData(body));
     this.setNoEditKeyTrue(key);
+  }
+
+  private getImageData(data: boolean[][]): ImageData  {
+    // Create a tiny block image (one pixel per cell)
+    const imageData = this.ctx.createImageData(this.blockSize, this.blockSize);
+
+    const pixels = imageData.data;
+
+    for (let y = 0; y < this.blockSize; y++) {
+      const yCol = y * this.blockSize;
+      for (let x = 0; x < this.blockSize; x++) {
+        const cell = data?.[x]?.[y];
+        const color = cell ? 0: 255; // black or white
+        const index = (yCol + x) * 4;
+        pixels[index] = color;     // R
+        pixels[index + 1] = color; // G
+        pixels[index + 2] = color; // B
+        pixels[index + 3] = 255;   // A
+      }
+    }
+    return imageData;
   }
 
   updateVisible(visibleKeys: Set<string>) {
@@ -99,12 +121,12 @@ export class BlockService implements OnDestroy{
     }
   }
 
-  getBlock(key: string): boolean[][] | undefined {
+  getBlock(key: string): ImageData | undefined {
     return this.blockData.get(key);
   }
 
   setBlock(key: string, data: boolean[][]) {
-    this.blockData.set(key, data);
+    this.blockData.set(key, this.getImageData(data));
   }
 
   setEdit(x: number, y: number, b: boolean) {

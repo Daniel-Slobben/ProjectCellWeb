@@ -69,6 +69,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.blockService.blockSize = settings.blockSize;
       this.blockService.clientId = settings.clientId;
       this.blockService.setupWebSocket()
+      this.blockService.ctx = this.ctx;
 
       this.centerOn(settings.x * this.blockSize + this.blockSize / 2 + this.blockTeleportOffset, settings.y * this.blockSize + this.blockSize / 2 + this.blockTeleportOffset);
     });
@@ -136,31 +137,13 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private drawBlockWithImageData(blockX: number, blockY: number) {
-    // Put image at 1:1 resolution, then scale drawImage
     const offscreen = document.createElement('canvas');
     offscreen.width = this.blockSize;
     offscreen.height = this.blockSize;
 
-    let data = this.blockService.getBlock(this.utils.getKey(blockX, blockY));
-    if (!data) {
+    let imageData = this.blockService.getBlock(this.utils.getKey(blockX, blockY));
+    if (!imageData) {
       return;
-    }
-
-    // Create a tiny block image (one pixel per cell)
-    const imageData = this.ctx.createImageData(this.blockSize, this.blockSize);
-    const pixels = imageData.data;
-
-    for (let y = 0; y < this.blockSize; y++) {
-      const yCol = y * this.blockSize;
-      for (let x = 0; x < this.blockSize; x++) {
-        const cell = data?.[x]?.[y];
-        const color = cell ? 0: 255; // black or white
-        const index = (yCol + x) * 4;
-        pixels[index] = color;     // R
-        pixels[index + 1] = color; // G
-        pixels[index + 2] = color; // B
-        pixels[index + 3] = 255;   // A
-      }
     }
 
     const offCtx = offscreen.getContext('2d')!;
