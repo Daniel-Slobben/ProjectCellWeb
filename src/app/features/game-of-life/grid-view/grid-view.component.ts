@@ -66,7 +66,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
       this.blockSize = settings.blockSize;
-      this.blockService.setup(settings.blockSize, settings.clientId, this.ctx)
+      this.blockService.setup(settings.blockSize, settings.clientId)
 
       this.centerOn(settings.x * this.blockSize + this.blockSize / 2 + this.blockTeleportOffset, settings.y * this.blockSize + this.blockSize / 2 + this.blockTeleportOffset);
     });
@@ -87,6 +87,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     canvas.removeEventListener('mouseleave', this.onDragEnd);
     canvas.removeEventListener('mousemove', this.onDragMove);
     canvas.removeEventListener('wheel', this.onWheel);
+
+
   }
 
   private startRenderLoop() {

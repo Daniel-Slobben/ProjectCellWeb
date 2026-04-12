@@ -20,7 +20,6 @@ export class BlockService implements OnDestroy {
 
   private blockSize: number = 0;
   private clientId: string = "";
-  private ctx!: CanvasRenderingContext2D;
 
   private subscription?: Subscription;
 
@@ -45,17 +44,11 @@ export class BlockService implements OnDestroy {
       webSocketFactory: () => new SockJS('/ws'), connectHeaders: {}, reconnectDelay: 100,
     });
     this.stompClient.activate();
-
-    this.subscription = this.stompClient.connected$.subscribe(() => {
-      console.log('Connected to WebSocket');
-    });
-
   }
 
-  public setup(blockSize: number, clientId: string, ctx: CanvasRenderingContext2D) {
+  public setup(blockSize: number, clientId: string) {
     this.blockSize = blockSize;
     this.clientId = clientId;
-    this.ctx = ctx;
 
     this.worker = new Worker(new URL('/decompress-block.worker.ts', import.meta.url), {type: 'module'});
 
@@ -72,7 +65,7 @@ export class BlockService implements OnDestroy {
     const topic = "/topic/" + this.clientId;
     console.log(topic);
 
-    this.stompClient.watch(topic).subscribe((message: IMessage) => {
+    this.subscription = this.stompClient.watch(topic).subscribe((message: IMessage) => {
       this.worker.postMessage({type: 'payload', payload: {data: JSON.parse(message.body), instant: false}});
     });
   }
@@ -116,7 +109,4 @@ export class BlockService implements OnDestroy {
   setNoEditKeyTrue(key: string) {
     this.noEditKey = key;
   }
-
-
-
 }
