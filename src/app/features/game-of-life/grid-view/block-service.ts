@@ -2,10 +2,10 @@ import {Injectable, OnDestroy} from '@angular/core';
 import {IMessage, RxStomp} from '@stomp/rx-stomp';
 import {HttpClient} from '@angular/common/http'
 import SockJS from 'sockjs-client';
-import {Utils} from './utils.component';
 import {UpdateBlocks} from '../../../requests/UpdateBlocks';
 import {Block} from '../../../requests/Block';
 import {Subscription} from 'rxjs';
+import {getKey} from './utils.component';
 
 @Injectable({providedIn: 'root'})
 export class BlockService implements OnDestroy {
@@ -23,15 +23,17 @@ export class BlockService implements OnDestroy {
 
   private subscription?: Subscription;
 
-  constructor(private httpClient: HttpClient, private utils: Utils) {
+  constructor(private httpClient: HttpClient) {
     this.stompClient = new RxStomp();
     this.configureWebSocket();
   }
 
   ngOnDestroy() {
+    console.log('Destroying block service');
     if (this.subscription) {
       this.subscription.unsubscribe();
     }
+    this.worker.terminate();
   }
 
   public getGeneration(): number {
@@ -55,8 +57,8 @@ export class BlockService implements OnDestroy {
     this.worker.postMessage({type: 'init', payload: {blockSize: this.blockSize}});
     this.worker.onmessage = (e) => {
       for (const { imageData, x, y } of e.data) {
-        if (this.noEditKey != this.utils.getKey(x, y)) {
-          this.blockData.set(this.utils.getKey(x, y), imageData);
+        if (this.noEditKey != getKey(x, y)) {
+          this.blockData.set(getKey(x, y), imageData);
         }
       }
       this.generation++;
@@ -66,7 +68,7 @@ export class BlockService implements OnDestroy {
     console.log(topic);
 
     this.subscription = this.stompClient.watch(topic).subscribe((message: IMessage) => {
-      this.worker.postMessage({type: 'payload', payload: {data: JSON.parse(message.body), instant: false}});
+      this.worker.postMessage({type: 'update', payload: {data: JSON.parse(message.body), imageData: this.blockData}});
     });
   }
 
@@ -88,7 +90,7 @@ export class BlockService implements OnDestroy {
     if (this.blocksToRemove.length > 0 || newActiveBlocks.length > 0) {
       this.httpClient.post<Block[]>('/gen-api/client-update', JSON.stringify(new UpdateBlocks(this.clientId, this.blocksToRemove, newActiveBlocks)), {headers: {'Content-Type': 'application/json'}})
         .subscribe((blocks: Block[]) => {
-          this.worker.postMessage({type: 'payload', payload: {data: blocks, instant: true}});
+          this.worker.postMessage({type: 'update', payload: {data: blocks, imageData: this.blockData}});
         })
     }
   }
@@ -99,7 +101,7 @@ export class BlockService implements OnDestroy {
 
   setEdit(x: number, y: number, b: boolean) {
     if (b) {
-      this.setNoEditKeyTrue(this.utils.getKey(x, y));
+      this.setNoEditKeyTrue(getKey(x, y));
     } else {
       this.noEditKey = undefined;
     }

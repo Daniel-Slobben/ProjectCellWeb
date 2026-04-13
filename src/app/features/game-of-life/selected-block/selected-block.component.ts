@@ -2,7 +2,7 @@ import { Component, Input } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { BlockService } from '../grid-view/block-service';
-import { Utils } from '../grid-view/utils.component';
+import {getKey} from '../grid-view/utils.component';
 
 @Component({
   selector: 'block-info',
@@ -21,7 +21,6 @@ export class SelectedBlockComponent {
   constructor(
     private readonly httpClient: HttpClient,
     private readonly blockService: BlockService,
-    private readonly utils: Utils
   ) {}
 
   setEditTrue(): void {
@@ -46,7 +45,7 @@ export class SelectedBlockComponent {
   }
 
   pushToServer(): void {
-    const matrix = this.blockService.getBlock(this.utils.getKey(this.x, this.y));
+    const matrix = this.blockService.getBlock(getKey(this.x, this.y));
 
     if (matrix === undefined) {
       console.warn('Block not found when pushing to server!');

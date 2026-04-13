@@ -2,7 +2,7 @@ import {AfterViewInit, Component, ElementRef, OnDestroy, ViewChild,} from '@angu
 import {FormsModule} from '@angular/forms';
 import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
-import {Utils} from './utils.component';
+import {getKey} from './utils.component';
 import {Settings} from '../../../requests/Settings';
 
 @Component({
@@ -43,7 +43,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   public selectedBlock: { x: number; y: number } | null = null;
   public editSelectedBlock: boolean = false;
 
-  constructor(private readonly httpClient: HttpClient, private readonly blockService: BlockService, private readonly utils: Utils) {
+  constructor(private readonly httpClient: HttpClient, private readonly blockService: BlockService) {
   }
 
   ngAfterViewInit() {
@@ -105,6 +105,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.drawnCellOffsetY == this.cellOffsetY) {
       return;
     }
+    this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
     this.drawnGeneration = this.blockService.getGeneration();
     this.drawnCellOffsetX = this.cellOffsetX;
     this.drawnCellOffsetY = this.cellOffsetY;
@@ -117,7 +118,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     for (let blockX = startBlockX - 1; blockX <= endBlockX + 1; blockX++) {
       for (let blockY = startBlockY - 1; blockY <= endBlockY + 1; blockY++) {
-        const key = this.utils.getKey(blockX, blockY);
+        const key = getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
           this.drawBlockWithImageData(blockX, blockY);
@@ -140,7 +141,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     offscreen.width = this.blockSize;
     offscreen.height = this.blockSize;
 
-    let imageData = this.blockService.getBlock(this.utils.getKey(blockX, blockY));
+    let imageData = this.blockService.getBlock(getKey(blockX, blockY));
     if (!imageData) {
       return;
     }
