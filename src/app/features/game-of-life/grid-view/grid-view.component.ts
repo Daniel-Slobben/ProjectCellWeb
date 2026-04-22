@@ -16,10 +16,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   protected blockSize: number = 500;
-  private isLoading = true;
   private cellSize = 4;
-  private readonly blockTeleportOffset = 100;
-  private readonly minCellSize: number = 1;
+  private readonly minCellSize: number = 0.2;
   private readonly maxCellSize: number = 20;
   private readonly canvasWidth = window.screen.width;
   private readonly canvasHeight = window.innerHeight - 30;
@@ -36,6 +34,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private isDragging = false;
   private dragStartX = 0;
   private dragStartY = 0;
+
+  private drawBorders: boolean = true;
 
   private animationFrameId?: number;
   private lastVisibleBlocks = new Set<string>();
@@ -68,7 +68,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.blockSize = settings.blockSize;
       this.blockService.setup(settings.blockSize, settings.clientId)
 
-      this.centerOn(settings.x * this.blockSize + this.blockSize / 2 + this.blockTeleportOffset, settings.y * this.blockSize + this.blockSize / 2 + this.blockTeleportOffset);
+      this.centerOn(settings.x, settings.y);
     });
 
     this.setupCanvasEvents();
@@ -155,7 +155,17 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const blockPixelSize = this.blockSize * this.cellSize;
 
     this.ctx.imageSmoothingEnabled = false;
+
     this.ctx.drawImage(offscreen, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
+
+    if (this.drawBorders) {
+      console.log("drawing borders");
+      this.ctx.lineWidth = 1;
+      this.ctx.strokeStyle = 'rgba(128, 128, 128, 255)';
+
+      this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
+    }
+
   }
 
   private readonly onClick = (e: MouseEvent) => {
