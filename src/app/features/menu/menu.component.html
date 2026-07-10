@@ -1,7 +1,0 @@
-<div [class]="atTop ? 'w3-top' : 'w3-bottom'">
-  <div class="w3-bar w3-black w3-card centered-nav">
-  @for (menu of menus; track menu) {
-    <button class="w3-bar-item w3-button w3-padding-large" (select)="changeMenu(menu)">{{menu.name}}</button>
-  }
-  </div>
-</div>

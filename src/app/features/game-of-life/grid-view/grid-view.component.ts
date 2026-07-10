@@ -4,6 +4,8 @@ import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import {Utils} from './utils.component';
 import {Settings} from '../../../requests/Settings';
+import {GameOfLifeComponent} from '../game-of-life.component';
+import {ChaosHit} from '../../../requests/ChaosHit';
 
 @Component({
   selector: 'grid-view',
@@ -22,8 +24,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private readonly canvasWidth = window.screen.width;
   private readonly canvasHeight = window.innerHeight - 30;
 
-  private cellOffsetX = 0;
-  private cellOffsetY = 0;
+  protected cellOffsetX = 0;
+  protected cellOffsetY = 0;
   private ctx!: CanvasRenderingContext2D;
 
   private drawnGeneration = 0;
@@ -35,13 +37,14 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private dragStartX = 0;
   private dragStartY = 0;
 
-  private drawBorders: boolean = true;
+  protected drawBorders: boolean = false;
 
   private animationFrameId?: number;
   private lastVisibleBlocks = new Set<string>();
 
   public selectedBlock: { x: number; y: number } | null = null;
-  public editSelectedBlock: boolean = false;
+
+  private currentChaosHit!: ChaosHit;
 
   constructor(private readonly httpClient: HttpClient, private readonly blockService: BlockService, private readonly utils: Utils) {
   }
@@ -68,7 +71,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.blockSize = settings.blockSize;
       this.blockService.setup(settings.blockSize, settings.clientId)
 
-      this.centerOn(settings.x, settings.y);
+      this.centerOn(settings.chaosHit.worldX, settings.chaosHit.worldY);
+      this.currentChaosHit = settings.chaosHit;
     });
 
     this.setupCanvasEvents();
@@ -282,5 +286,18 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     return this.lastVisibleBlocks.size;
   }
 
+  protected toggleBlockBorders() {
+    this.drawBorders = !this.drawBorders;
+  }
+
+  protected nextChaosHit(goNextHit: boolean) {
+    console.log("getting next chaoshit");
+    this.httpClient.get<ChaosHit>(`/gen-api/next-chaos-hit/${this.currentChaosHit.id}/${goNextHit}`).subscribe((chaosHit) => {
+      this.centerOn(chaosHit.worldX, chaosHit.worldY);
+      this.currentChaosHit = chaosHit;
+    });
+  }
+
+  protected readonly Math = Math;
 }
 

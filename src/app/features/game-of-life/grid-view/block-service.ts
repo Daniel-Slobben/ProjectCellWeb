@@ -86,10 +86,10 @@ export class BlockService implements OnDestroy {
     const newActiveBlocks = this.activeBlocks.filter(key => !originalActiveBlocks.includes(key)).map(key => key);
 
     if (this.blocksToRemove.length > 0 || newActiveBlocks.length > 0) {
-      this.httpClient.post<Block[]>('/gen-api/client-update', JSON.stringify(new UpdateBlocks(this.clientId, this.blocksToRemove, newActiveBlocks)), {headers: {'Content-Type': 'application/json'}})
-        .subscribe((blocks: Block[]) => {
-          this.worker.postMessage({type: 'payload', payload: {data: blocks, instant: true}});
-        })
+      this.stompClient.publish({
+        destination: '/client-update',
+        body: JSON.stringify(new UpdateBlocks(this.clientId, this.blocksToRemove, newActiveBlocks))
+      });
     }
   }
 
