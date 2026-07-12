@@ -91,8 +91,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     canvas.removeEventListener('mouseleave', this.onDragEnd);
     canvas.removeEventListener('mousemove', this.onDragMove);
     canvas.removeEventListener('wheel', this.onWheel);
-
-
   }
 
   private startRenderLoop() {
