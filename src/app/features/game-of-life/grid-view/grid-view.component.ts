@@ -4,6 +4,7 @@ import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import {Utils} from './utils.component';
 import {Settings} from '../../../requests/Settings';
+import {GameOfLifeComponent} from '../game-of-life.component';
 import {ChaosHit} from '../../../requests/ChaosHit';
 
 @Component({
@@ -142,12 +143,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.lastVisibleBlocks = currentVisibleBlocks;
   }
 
-  private drawBlockWithImageDataOld(blockX: number, blockY: number) {
+  private drawBlockWithImageData(blockX: number, blockY: number) {
     const offscreen = document.createElement('canvas');
     offscreen.width = this.blockSize;
     offscreen.height = this.blockSize;
 
-    let imageData: ImageData | undefined = this.blockService.getBlock(this.utils.getKey(blockX, blockY));
+    let imageData = this.blockService.getBlock(this.utils.getKey(blockX, blockY));
     if (!imageData) {
       return;
     }
@@ -173,37 +174,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
     }
 
-  }
-
-  private drawBlockWithImageData(blockX: number, blockY: number) {
-    const offscreen = document.createElement('canvas');
-    offscreen.width = this.blockSize;
-    offscreen.height = this.blockSize;
-
-    let imageData: ImageData | undefined = this.blockService.getBlock(this.utils.getKey(blockX, blockY));
-    if (!imageData) {
-      return;
-    }
-
-    const offCtx = offscreen.getContext('2d')!;
-    offCtx.putImageData(imageData, 0, 0);
-
-    const baseX = blockX * this.blockSize;
-    const baseY = blockY * this.blockSize;
-
-    const dpr = window.devicePixelRatio || 1;
-    const blockCanvasX = Math.round((baseX - this.cellOffsetX) * this.cellSize * dpr) / dpr;
-    const blockCanvasY = Math.round((baseY - this.cellOffsetY) * this.cellSize * dpr) / dpr;
-    const blockPixelSize = Math.round(this.blockSize * this.cellSize * dpr) / dpr;
-
-    this.ctx.imageSmoothingEnabled = false;
-    this.ctx.drawImage(offscreen, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
-
-    if (this.drawBorders) {
-      this.ctx.lineWidth = 1;
-      this.ctx.strokeStyle = 'rgba(128, 128, 128, 255)';
-      this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
-    }
   }
 
   private readonly onClick = (e: MouseEvent) => {
@@ -285,7 +255,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       const worldX = this.cellOffsetX + mouseX / this.cellSize;
       const worldY = this.cellOffsetY + mouseY / this.cellSize;
 
-      this.cellSize = this.snapCellSize(newCellSize);
+      this.cellSize = newCellSize;
 
       // Adjust offset to keep the mouse position stable
       this.cellOffsetX = worldX - mouseX / this.cellSize;
@@ -415,13 +385,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.centerOn(chaosHit.worldX, chaosHit.worldY);
       this.currentChaosHit = chaosHit;
     });
-  }
-
-  private snapCellSize(rawCellSize: number): number {
-    const dpr = window.devicePixelRatio || 1;
-    // force blockSize * cellSize * dpr to be an integer number of device pixels
-    const blockPixels = Math.max(1, Math.round(rawCellSize * this.blockSize * dpr));
-    return blockPixels / (this.blockSize * dpr);
   }
 
   protected readonly Math = Math;
