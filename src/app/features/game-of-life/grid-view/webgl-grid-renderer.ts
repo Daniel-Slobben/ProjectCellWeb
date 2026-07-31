@@ -163,23 +163,17 @@ void main() {
     return texture;
   }
 
-  ensureTexture(key: string, imageData: ImageData) {
-    if (!this.blockTextures.has(key)) {
-      const texture = this.createTexture(imageData);
-      this.blockTextures.set(key, texture);
-    }
-  }
-
   getTexture(key: string): WebGLTexture | undefined {
     return this.blockTextures.get(key);
   }
 
+  deleteTexture(key: string) {
+    const texture = this.blockTextures.get(key);
 
-  resize(width: number, height: number) {
-    this.canvasWidth = width;
-    this.canvasHeight = height;
-
-    this.gl.viewport(0, 0, width, height);
+    if (texture) {
+      this.gl.deleteTexture(texture);
+      this.blockTextures.delete(key);
+    }
   }
 
   drawBlock(texture: WebGLTexture, x: number, y: number, width: number, height: number) {
