@@ -163,6 +163,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const blockPixelSize = this.blockSize * this.cellSize;
 
     this.ctx.imageSmoothingEnabled = false;
+
     this.ctx.drawImage(offscreen, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
 
     if (this.drawBorders) {
@@ -254,7 +255,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       const worldX = this.cellOffsetX + mouseX / this.cellSize;
       const worldY = this.cellOffsetY + mouseY / this.cellSize;
 
-      this.cellSize = newCellSize;
+      this.cellSize = Math.round(newCellSize * 10) / 10;
 
       // Adjust offset to keep the mouse position stable
       this.cellOffsetX = worldX - mouseX / this.cellSize;
