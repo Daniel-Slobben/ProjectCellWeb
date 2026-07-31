@@ -28,6 +28,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   protected cellOffsetY = 0;
   private renderer!: WebGLGridRenderer;
 
+  private drawnGeneration = 0;
+  private drawnCellOffsetX = 0;
+  private drawnCellOffsetY = 0;
+
   // Drag state
   private isDragging = false;
   private dragStartX = 0;
@@ -103,7 +107,15 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private updateVisibleBlocks() {
+    if (this.drawnGeneration == this.blockService.getGeneration() &&
+      this.drawnCellOffsetX == this.cellOffsetX &&
+      this.drawnCellOffsetY == this.cellOffsetY) {
+      return;
+    }
     this.renderer.clear();
+    this.drawnGeneration = this.blockService.getGeneration();
+    this.drawnCellOffsetX = this.cellOffsetX;
+    this.drawnCellOffsetY = this.cellOffsetY;
 
     const startBlockX = Math.floor(this.cellOffsetX / this.blockSize);
     const startBlockY = Math.floor(this.cellOffsetY / this.blockSize);
