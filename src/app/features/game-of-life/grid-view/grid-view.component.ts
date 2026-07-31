@@ -4,8 +4,8 @@ import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import {Utils} from './utils.component';
 import {Settings} from '../../../requests/Settings';
+import {GameOfLifeComponent} from '../game-of-life.component';
 import {ChaosHit} from '../../../requests/ChaosHit';
-import {WebGLGridRenderer} from './webgl-grid-renderer';
 
 @Component({
   selector: 'grid-view',
@@ -26,7 +26,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   protected cellOffsetX = 0;
   protected cellOffsetY = 0;
-  private renderer!: WebGLGridRenderer;
+  private ctx!: CanvasRenderingContext2D;
 
   private drawnGeneration = 0;
   private drawnCellOffsetX = 0;
@@ -61,16 +61,17 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
+    this.ctx = this.canvasRef.nativeElement.getContext('2d')!;
+    if (!this.ctx) {
+      console.error('Could not get 2D context from canvas');
+      return;
+    }
+
     this.canvasRef.nativeElement.width = this.canvasWidth;
     this.canvasRef.nativeElement.height = this.canvasHeight;
 
-    this.renderer = new WebGLGridRenderer();
-    this.renderer.init(this.canvasRef.nativeElement);
-
-    if (!this.renderer) {
-      console.error('Could not WebGlGridRenderer');
-      return;
-    }
+    // Set canvas rendering optimizations
+    this.ctx.imageSmoothingEnabled = false;
 
     this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
       this.blockSize = settings.blockSize;
@@ -112,7 +113,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.drawnCellOffsetY == this.cellOffsetY) {
       return;
     }
-    this.renderer.clear();
     this.drawnGeneration = this.blockService.getGeneration();
     this.drawnCellOffsetX = this.cellOffsetX;
     this.drawnCellOffsetY = this.cellOffsetY;
@@ -148,46 +148,29 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     offscreen.width = this.blockSize;
     offscreen.height = this.blockSize;
 
-    const key = this.utils.getKey(blockX, blockY);
-    let imageData = this.blockService.getBlock(key);
+    let imageData = this.blockService.getBlock(this.utils.getKey(blockX, blockY));
     if (!imageData) {
       return;
     }
 
+    const offCtx = offscreen.getContext('2d')!;
+    offCtx.putImageData(imageData, 0, 0);
     const baseX = blockX * this.blockSize;
     const baseY = blockY * this.blockSize;
 
-    const blockCanvasX =
-      (baseX - this.cellOffsetX) * this.cellSize;
+    const blockCanvasX = (baseX - this.cellOffsetX) * this.cellSize;
+    const blockCanvasY = (baseY - this.cellOffsetY) * this.cellSize;
+    const blockPixelSize = this.blockSize * this.cellSize;
 
-    const blockCanvasY =
-      (baseY - this.cellOffsetY) * this.cellSize;
-
-    const blockPixelSize =
-      this.blockSize * this.cellSize;
-
-    this.renderer.updateTexture(
-      key,
-      imageData
-    );
-
-    const texture =
-      this.renderer.getTexture(key);
-
-    this.renderer.drawBlock(
-      texture!,
-      blockCanvasX,
-      blockCanvasY,
-      blockPixelSize,
-      blockPixelSize
-    );
+    this.ctx.imageSmoothingEnabled = false;
+    this.ctx.drawImage(offscreen, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
 
     if (this.drawBorders) {
       console.log("drawing borders");
-      // this.ctx.lineWidth = 1;
-      // this.ctx.strokeStyle = 'rgba(128, 128, 128, 255)';
-      //
-      // this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
+      this.ctx.lineWidth = 1;
+      this.ctx.strokeStyle = 'rgba(128, 128, 128, 255)';
+
+      this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
     }
 
   }
