@@ -11,13 +11,13 @@
       Previous
     </button>
     <button class="w3-bar-item w3-button w3-padding-large">
-      Coordinates: x: {{Math.floor(cellOffsetY)}}, y: {{Math.floor(cellOffsetX)}}
+      x: {{Math.floor(-cellOffsetY)}} y: {{Math.floor(-cellOffsetX)}}
     </button>
-    <button class="w3-bar-item w3-button w3-padding-large"
-            (click)="toggleBlockBorders()"
-            [class.selected]="drawBorders">
-      Show Block Borders
-    </button>
+<!--    <button class="w3-bar-item w3-button w3-padding-large"-->
+<!--            (click)="toggleBlockBorders()"-->
+<!--            [class.selected]="drawBorders">-->
+<!--      Show Block Borders-->
+<!--    </button>-->
     <button class="w3-bar-item w3-button w3-padding-large"
             (click)="nextChaosHit(true)">
       Next

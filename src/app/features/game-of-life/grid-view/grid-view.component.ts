@@ -163,7 +163,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const blockPixelSize = this.blockSize * this.cellSize;
 
     this.ctx.imageSmoothingEnabled = false;
-
     this.ctx.drawImage(offscreen, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
 
     if (this.drawBorders) {
