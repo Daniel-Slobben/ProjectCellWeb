@@ -174,6 +174,14 @@ void main() {
     return this.blockTextures.get(key);
   }
 
+
+  resize(width: number, height: number) {
+    this.canvasWidth = width;
+    this.canvasHeight = height;
+
+    this.gl.viewport(0, 0, width, height);
+  }
+
   drawBlock(texture: WebGLTexture, x: number, y: number, width: number, height: number) {
     const gl = this.gl;
 
