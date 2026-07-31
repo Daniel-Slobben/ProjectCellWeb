@@ -21,8 +21,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private cellSize = 4;
   private readonly minCellSize: number = 1;
   private readonly maxCellSize: number = 20;
-  private readonly canvasWidth = Math.floor(window.innerWidth);
-  private readonly canvasHeight = Math.floor(window.innerHeight);
+  private readonly canvasWidth = window.screen.width;
+  private readonly canvasHeight = window.innerHeight;
 
   protected cellOffsetX = 0;
   protected cellOffsetY = 0;
@@ -281,7 +281,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.cellOffsetY = worldY - mouseY / this.cellSize;
     }
   }
-
   private getTouchDistance(touches: TouchList): number {
     const dx = touches[0].clientX - touches[1].clientX;
     const dy = touches[0].clientY - touches[1].clientY;
