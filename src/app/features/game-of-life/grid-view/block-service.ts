@@ -4,6 +4,7 @@ import {HttpClient} from '@angular/common/http'
 import SockJS from 'sockjs-client';
 import {Utils} from './utils.component';
 import {UpdateBlocks} from '../../../requests/UpdateBlocks';
+import {Block} from '../../../requests/Block';
 import {Subscription} from 'rxjs';
 
 @Injectable({providedIn: 'root'})
@@ -62,6 +63,7 @@ export class BlockService implements OnDestroy {
     }
 
     const topic = "/topic/" + this.clientId;
+    console.log(topic);
 
     this.subscription = this.stompClient.watch(topic).subscribe((message: IMessage) => {
       this.worker.postMessage({type: 'payload', payload: {data: JSON.parse(message.body), instant: false}});
