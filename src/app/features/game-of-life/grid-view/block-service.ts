@@ -91,10 +91,6 @@ export class BlockService implements OnDestroy {
     }
   }
 
-  getRemovedBlocks(): string[] {
-    return this.blocksToRemove;
-  }
-
   getBlock(key: string): ImageData | undefined {
     return this.blockData.get(key);
   }
