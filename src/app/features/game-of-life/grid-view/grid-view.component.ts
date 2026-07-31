@@ -80,9 +80,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.currentChaosHit = settings.chaosHit;
     });
 
-    window.addEventListener('resize', () => this.resizeCanvas());
-    this.resizeCanvas();
-
     this.setupCanvasEvents();
     this.startRenderLoop();
   }
@@ -145,22 +142,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.lastVisibleBlocks = currentVisibleBlocks;
   }
-
-  private resizeCanvas() {
-    const canvas = this.canvasRef.nativeElement;
-    const dpr = window.devicePixelRatio || 1;
-
-    const width = Math.floor(canvas.clientWidth * dpr);
-    const height = Math.floor(canvas.clientHeight * dpr);
-
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-
-      this.renderer.resize(width, height);
-    }
-  }
-
 
   private drawBlockWithImageData(blockX: number, blockY: number) {
     const offscreen = document.createElement('canvas');
