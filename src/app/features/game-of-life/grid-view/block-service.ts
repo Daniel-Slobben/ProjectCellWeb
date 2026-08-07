@@ -1,112 +1,145 @@
 import {Injectable, OnDestroy} from '@angular/core';
 import {IMessage, RxStomp} from '@stomp/rx-stomp';
-import {HttpClient} from '@angular/common/http'
+import {HttpClient} from '@angular/common/http';
 import SockJS from 'sockjs-client';
 import {Utils} from './utils.component';
 import {UpdateBlocks} from '../../../requests/UpdateBlocks';
-import {Block} from '../../../requests/Block';
 import {Subscription} from 'rxjs';
 
 @Injectable({providedIn: 'root'})
 export class BlockService implements OnDestroy {
   private readonly stompClient: RxStomp;
   private readonly blockData = new Map<string, ImageData | undefined>();
+  private generation = 0;
 
-  private generation: number = 0;
-  private blocksToRemove: string[] = [];
-  private activeBlocks: string[] = [];
+  private activeBlocks = new Set<string>();
+  private publishedBlocks = new Set<string>();
+
   private noEditKey: string | undefined;
   private worker!: Worker;
-
-  private blockSize: number = 0;
-  private clientId: string = "";
-
+  private blockSize = 0;
+  private clientId = '';
   private subscription?: Subscription;
+
+  private readonly publishWindowMs = 150;
+  private publishTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private httpClient: HttpClient, private utils: Utils) {
     this.stompClient = new RxStomp();
     this.configureWebSocket();
   }
 
-  ngOnDestroy() {
-    if (this.subscription) {
-      this.subscription.unsubscribe();
+  ngOnDestroy(): void {
+    if (this.publishTimer !== null) {
+      clearTimeout(this.publishTimer);
+      this.publishTimer = null;
     }
+    this.subscription?.unsubscribe();
+    this.worker?.terminate();
+    void this.stompClient.deactivate();
   }
 
   public getGeneration(): number {
     return this.generation;
   }
 
-  private configureWebSocket() {
-
+  private configureWebSocket(): void {
     this.stompClient.configure({
-      webSocketFactory: () => new SockJS('/ws'), connectHeaders: {}, reconnectDelay: 100,
+      webSocketFactory: () => new SockJS('/ws'),
+      connectHeaders: {},
+      reconnectDelay: 100,
     });
     this.stompClient.activate();
   }
 
-  public setup(blockSize: number, clientId: string) {
+  public setup(blockSize: number, clientId: string): void {
     this.blockSize = blockSize;
     this.clientId = clientId;
 
-    this.worker = new Worker(new URL('/decompress-block.worker.ts', import.meta.url), {type: 'module'});
-
+    this.worker = new Worker(
+      new URL('./decompress-block.worker.ts', import.meta.url),
+      {type: 'module'},
+    );
     this.worker.postMessage({type: 'init', payload: {blockSize: this.blockSize}});
+
     this.worker.onmessage = (e) => {
-      for (const { imageData, x, y } of e.data) {
-        if (this.noEditKey != this.utils.getKey(x, y)) {
-          this.blockData.set(this.utils.getKey(x, y), imageData);
+      for (const {imageData, x, y} of e.data) {
+        const key = this.utils.getKey(x, y);
+        if (this.noEditKey !== key) {
+          this.blockData.set(key, imageData);
         }
       }
       this.generation++;
-    }
+    };
 
-    const topic = "/topic/" + this.clientId;
-    console.log(topic);
-
-    this.subscription = this.stompClient.watch(topic).subscribe((message: IMessage) => {
-      this.worker.postMessage({type: 'payload', payload: {data: JSON.parse(message.body), instant: false}});
-    });
+    this.subscription = this.stompClient
+      .watch('/topic/' + this.clientId)
+      .subscribe((message: IMessage) => {
+        this.worker.postMessage({
+          type: 'payload',
+          payload: {data: JSON.parse(message.body), instant: false},
+        });
+      });
   }
 
-  updateVisible(visibleKeys: Set<string>) {
-    const originalActiveBlocks = Object.assign([], this.activeBlocks);
-    this.blocksToRemove = [];
-    this.activeBlocks.forEach((key) => {
+  updateVisible(visibleKeys: Set<string>): void {
+    for (const key of this.activeBlocks) {
       if (!visibleKeys.has(key)) {
         this.blockData.delete(key);
-        this.blocksToRemove.push(key);
       }
-    });
-    this.activeBlocks = [];
-    visibleKeys.forEach((key) => {
-      this.activeBlocks.push(key);
-    })
-    const newActiveBlocks = this.activeBlocks.filter(key => !originalActiveBlocks.includes(key)).map(key => key);
-
-    if (this.blocksToRemove.length > 0 || newActiveBlocks.length > 0) {
-      this.stompClient.publish({
-        destination: '/client-update',
-        body: JSON.stringify(new UpdateBlocks(this.clientId, this.blocksToRemove, newActiveBlocks))
-      });
     }
+
+    this.activeBlocks = new Set(visibleKeys);
+    this.schedulePublish();
+  }
+
+  private schedulePublish(): void {
+    if (this.publishTimer !== null) return;
+    if (!this.hasDrift()) return;
+
+    this.publishTimer = setTimeout(() => {
+      this.publishTimer = null;
+      this.publishDelta();
+    }, this.publishWindowMs);
+  }
+
+  private hasDrift(): boolean {
+    if (this.activeBlocks.size !== this.publishedBlocks.size) return true;
+    for (const key of this.activeBlocks) {
+      if (!this.publishedBlocks.has(key)) return true;
+    }
+    return false;
+  }
+
+  private publishDelta(): void {
+    const toRemove: string[] = [];
+    for (const key of this.publishedBlocks) {
+      if (!this.activeBlocks.has(key)) toRemove.push(key);
+    }
+
+    const toAdd: string[] = [];
+    for (const key of this.activeBlocks) {
+      if (!this.publishedBlocks.has(key)) toAdd.push(key);
+    }
+
+    if (toRemove.length === 0 && toAdd.length === 0) return;
+
+    this.stompClient.publish({
+      destination: '/client-update',
+      body: JSON.stringify(new UpdateBlocks(this.clientId, toRemove, toAdd)),
+    });
+    this.publishedBlocks = new Set(this.activeBlocks);
   }
 
   getBlock(key: string): ImageData | undefined {
     return this.blockData.get(key);
   }
 
-  setEdit(x: number, y: number, b: boolean) {
-    if (b) {
-      this.setNoEditKeyTrue(this.utils.getKey(x, y));
-    } else {
-      this.noEditKey = undefined;
-    }
-
+  setEdit(x: number, y: number, b: boolean): void {
+    this.noEditKey = b ? this.utils.getKey(x, y) : undefined;
   }
 
-  setNoEditKeyTrue(key: string) {
+  setNoEditKeyTrue(key: string): void {
     this.noEditKey = key;
   }
 }
