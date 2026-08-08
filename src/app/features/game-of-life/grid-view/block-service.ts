@@ -10,6 +10,7 @@ import {Subscription} from 'rxjs';
 export class BlockService implements OnDestroy {
   private readonly stompClient: RxStomp;
   private readonly blockData = new Map<string, ImageData | undefined>();
+  private readonly encodedBlockData = new Map<string, Uint8Array | undefined>();
   private generation = 0;
 
   private activeBlocks = new Set<string>();
@@ -19,6 +20,7 @@ export class BlockService implements OnDestroy {
   private worker!: Worker;
   private blockSize = 0;
   private clientId = '';
+  private subscriptionFull?: Subscription;
   private subscription?: Subscription;
 
   private readonly publishWindowMs = 150;
@@ -35,6 +37,7 @@ export class BlockService implements OnDestroy {
       this.publishTimer = null;
     }
     this.subscription?.unsubscribe();
+    this.subscriptionFull?.unsubscribe();
     this.worker?.terminate();
     void this.stompClient.deactivate();
   }
@@ -63,21 +66,40 @@ export class BlockService implements OnDestroy {
     this.worker.postMessage({type: 'init', payload: {blockSize: this.blockSize}});
 
     this.worker.onmessage = (e) => {
-      for (const {imageData, x, y} of e.data) {
+      this.generation++;
+
+      for (const {image, data, error, x, y} of e.data) {
         const key = this.utils.getKey(x, y);
+
+        if (error) {
+          this.blockData.clear();
+          this.publishedBlocks.clear();
+          this.publishDelta();
+          return;
+        }
+
         if (this.noEditKey !== key) {
-          this.blockData.set(key, imageData);
+          this.blockData.set(key, image);
+          this.encodedBlockData.set(key, data);
         }
       }
-      this.generation++;
     };
+
+    this.subscriptionFull = this.stompClient
+      .watch('/topic/full/' + this.clientId)
+      .subscribe((message: IMessage) => {
+        this.worker.postMessage({
+          type: 'payload',
+          payload: {data: JSON.parse(message.body), instant: false},
+        });
+      });
 
     this.subscription = this.stompClient
       .watch('/topic/' + this.clientId)
       .subscribe((message: IMessage) => {
         this.worker.postMessage({
           type: 'payload',
-          payload: {data: JSON.parse(message.body), instant: false},
+          payload: {data: JSON.parse(message.body), instant: false, encodedBlocks: this.encodedBlockData},
         });
       });
   }
@@ -124,6 +146,7 @@ export class BlockService implements OnDestroy {
 
     if (toRemove.length === 0 && toAdd.length === 0) return;
 
+    console.error('client-jupdate!');
     this.stompClient.publish({
       destination: '/client-update',
       body: JSON.stringify(new UpdateBlocks(this.clientId, toRemove, toAdd)),
