@@ -4,7 +4,6 @@ import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import {Utils} from './utils.component';
 import {Settings} from '../../../requests/Settings';
-import {GameOfLifeComponent} from '../game-of-life.component';
 import {ChaosHit} from '../../../requests/ChaosHit';
 
 @Component({
@@ -61,14 +60,14 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
+    const ratio = Math.ceil(window.devicePixelRatio);
     this.ctx = this.canvasRef.nativeElement.getContext('2d')!;
-    if (!this.ctx) {
-      console.error('Could not get 2D context from canvas');
-      return;
-    }
 
-    this.canvasRef.nativeElement.width = this.canvasWidth;
-    this.canvasRef.nativeElement.height = this.canvasHeight;
+    this.ctx.canvas.width = this.canvasWidth * ratio;
+    this.ctx.canvas.height = this.canvasHeight * ratio;
+    this.ctx.canvas.style.width = `${this.canvasWidth}px`;
+    this.ctx.canvas.style.height = `${this.canvasHeight}px`;
+    this.ctx.canvas.getContext('2d')!.setTransform(ratio, 0, 0, ratio, 0, 0);
 
     // Set canvas rendering optimizations
     this.ctx.imageSmoothingEnabled = false;
