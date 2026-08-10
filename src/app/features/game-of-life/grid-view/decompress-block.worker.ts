@@ -166,6 +166,6 @@ function decodeBorderToBlockBits(encodedCells: string, blockSize: number): Uint8
     setBit(blockBits, last * blockSize + y, getBit(borderBits, index++));
   }
 
-  if (index !== totalBits) console.warn('bit count mismatch', index, totalBits);
+  if (index !== totalBits) throw new Error('bit count mismatch: index: ' + index + 'bits: ' + totalBits);
   return blockBits;
 }
