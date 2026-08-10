@@ -18,7 +18,6 @@ globalThis.onmessage = async function (e: any) {
   if (payload.encodedBlocks) {
     for (const block of blockList) {
       try {
-        if (Math.random() > 0.95) throw new Error();
         const data = decodeBorderToBlockBits(block.encodedCells, blockSize);
         fillInnerBlockWithAlgo(data, payload.encodedBlocks.get(utils.getKey(block.x, block.y)));
         const image = decodeByteArrayToImageData(data);
