@@ -11,31 +11,34 @@ globalThis.onmessage = async function (e: any) {
     return;
   }
   const results = [];
+  const updateType = payload.encodedBlocks ? 'borders' : 'full';
 
-  try {
-    const blockList = payload.data;
+  const blockList = payload.data;
 
-    if (payload.encodedBlocks) {
-      for (const block of blockList) {
+  if (payload.encodedBlocks) {
+    for (const block of blockList) {
+      try {
+        if (Math.random() > 0.95) throw new Error();
         const data = decodeBorderToBlockBits(block.encodedCells, blockSize);
-        fillInnerBlockWithAlgo(data, payload.encodedBlocks.get(utils.getKey(block.x, block.y)))
+        fillInnerBlockWithAlgo(data, payload.encodedBlocks.get(utils.getKey(block.x, block.y)));
         const image = decodeByteArrayToImageData(data);
         results.push({image, data, x: block.x, y: block.y});
-      }
-    } else {
-      for (const block of blockList) {
-        const data = decodeLz4BlockToByteArray(block.encodedCells, blockSize);
-        const image = decodeByteArrayToImageData(data);
-        results.push({image, data, x: block.x, y: block.y});
+      } catch (e) {
+        results.push({error: true, x: block.x, y: block.y})
+        console.error(e);
       }
     }
-  } catch (e) {
-    console.error(e);
-    results.push({error: true})
+  } else {
+    for (const block of blockList) {
+      const data = decodeLz4BlockToByteArray(block.encodedCells, blockSize);
+      const image = decodeByteArrayToImageData(data);
+      results.push({image, data, x: block.x, y: block.y});
+    }
   }
 
-  self.postMessage(results);
-};
+  self.postMessage({results, updateType});
+}
+
 
 function fillInnerBlockWithAlgo(packedBits: Uint8Array, previousEncodedBlock: Uint8Array) {
   const heatmap = new Uint8Array(blockSize * blockSize);
@@ -129,8 +132,7 @@ function getBit(bits: Uint8Array, i: number): boolean {
 }
 
 function setBit(bits: Uint8Array, i: number, value: boolean): void {
-  if (value) bits[i >>> 3] |= 1 << (i & 7);
-  else bits[i >>> 3] &= ~(1 << (i & 7));
+  if (value) bits[i >>> 3] |= 1 << (i & 7); else bits[i >>> 3] &= ~(1 << (i & 7));
 }
 
 /**

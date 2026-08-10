@@ -68,20 +68,26 @@ export class BlockService implements OnDestroy {
     this.worker.onmessage = (e) => {
       this.generation++;
 
-      for (const {image, data, error, x, y} of e.data) {
+      const errorKeys: string[] = [];
+
+      for (const {image, data, error, x, y} of e.data.results) {
         const key = this.utils.getKey(x, y);
 
         if (error) {
-          this.blockData.clear();
-          this.publishedBlocks.clear();
-          this.publishDelta();
-          return;
+          errorKeys.push(key);
+          continue;
         }
 
         if (this.noEditKey !== key) {
           this.blockData.set(key, image);
           this.encodedBlockData.set(key, data);
         }
+      }
+      if (errorKeys.length > 0) {
+        this.stompClient.publish({
+          destination: '/block-request',
+          body: JSON.stringify(new UpdateBlocks(this.clientId, [], [])),
+        });
       }
     };
 
@@ -146,7 +152,6 @@ export class BlockService implements OnDestroy {
 
     if (toRemove.length === 0 && toAdd.length === 0) return;
 
-    console.error('client-jupdate!');
     this.stompClient.publish({
       destination: '/client-update',
       body: JSON.stringify(new UpdateBlocks(this.clientId, toRemove, toAdd)),
