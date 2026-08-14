@@ -17,9 +17,14 @@ globalThis.onmessage = async function (e: any) {
 
   if (payload.encodedBlocks) {
     for (const block of blockList) {
+      const key = utils.getKey(block.x, block.y);
+      if (payload.history[1].get(key) !== undefined && block.generation === payload.history[1].get(key).generation) {
+        console.log("Skipping block!")
+        continue;
+      }
       try {
         const data = decodeBorderToBlockBits(block.encodedCells, blockSize);
-        fillInnerBlockWithAlgo(data, payload.encodedBlocks.get(utils.getKey(block.x, block.y)));
+        fillInnerBlockWithAlgo(data, payload.encodedBlocks.get(key));
         const image = decodeByteArrayToImageData(data);
         results.push({image, data, x: block.x, y: block.y});
       } catch (e) {
