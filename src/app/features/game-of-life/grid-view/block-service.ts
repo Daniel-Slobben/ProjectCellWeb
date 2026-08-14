@@ -12,7 +12,6 @@ export class BlockService implements OnDestroy {
   private readonly stompClient: RxStomp;
   private readonly blockData = new Map<string, ImageData | undefined>();
   private readonly encodedBlockData = new Map<string, Uint8Array | undefined>();
-  private readonly blockHistory = new Array<Map<string, Block>>(2);
   private generation = 0;
 
   private activeBlocks = new Set<string>();
@@ -60,8 +59,6 @@ export class BlockService implements OnDestroy {
   public setup(blockSize: number, clientId: string): void {
     this.blockSize = blockSize;
     this.clientId = clientId;
-    this.blockHistory[0] = new Map<string, Block>();
-    this.blockHistory[1] = new Map<string, Block>();
 
     this.worker = new Worker(
       new URL('./decompress-block.worker.ts', import.meta.url),
@@ -71,8 +68,6 @@ export class BlockService implements OnDestroy {
 
     this.worker.onmessage = (e) => {
       this.generation++;
-      this.blockHistory[1] = this.blockHistory[0];
-      this.blockHistory[0] = new Map<string, Block>();
 
       const errorKeys: string[] = [];
 
@@ -101,10 +96,6 @@ export class BlockService implements OnDestroy {
       .watch('/topic/full/' + this.clientId)
       .subscribe((message: IMessage) => {
         const blocks: Block[]= JSON.parse(message.body);
-        blocks.forEach(block => {
-          this.blockHistory[0].set(this.utils.getKey(block.x, block.y), block);
-        })
-
         this.worker.postMessage({
           type: 'payload',
           payload: {data: JSON.parse(message.body), instant: false}
@@ -115,13 +106,10 @@ export class BlockService implements OnDestroy {
       .watch('/topic/' + this.clientId)
       .subscribe((message: IMessage) => {
         const blocks: Block[]= JSON.parse(message.body);
-        blocks.forEach(block => {
-          this.blockHistory[0].set(this.utils.getKey(block.x, block.y), block);
-        })
 
         this.worker.postMessage({
           type: 'payload',
-          payload: {data: JSON.parse(message.body), instant: false, encodedBlocks: this.encodedBlockData, history: this.blockHistory},
+          payload: {data: JSON.parse(message.body), instant: false, encodedBlocks: this.encodedBlockData},
         });
       });
   }

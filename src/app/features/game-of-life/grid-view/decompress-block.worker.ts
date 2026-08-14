@@ -2,9 +2,11 @@ import {decompressBlock} from 'lz4js';
 import {Utils} from './utils.component';
 
 let blockSize: number;
+const utils = new Utils();
+
+const lastGen = new Map<string, number>();
 
 globalThis.onmessage = async function (e: any) {
-  const utils = new Utils();
   const {type, payload} = e.data;
   if (type === 'init') {
     blockSize = payload.blockSize;
@@ -18,15 +20,15 @@ globalThis.onmessage = async function (e: any) {
   if (payload.encodedBlocks) {
     for (const block of blockList) {
       const key = utils.getKey(block.x, block.y);
-      if (payload.history[1].get(key) !== undefined && block.generation === payload.history[1].get(key).generation) {
-        console.log("Skipping block!")
-        continue;
-      }
+      const seen = lastGen.get(key);
+      if (seen !== undefined && block.generation <= seen) continue;
+
       try {
         const data = decodeBorderToBlockBits(block.encodedCells, blockSize);
         fillInnerBlockWithAlgo(data, payload.encodedBlocks.get(key));
         const image = decodeByteArrayToImageData(data);
         results.push({image, data, x: block.x, y: block.y});
+        lastGen.set(key, block.generation);
       } catch (e) {
         results.push({error: true, x: block.x, y: block.y})
         console.error(e);
@@ -37,12 +39,14 @@ globalThis.onmessage = async function (e: any) {
       const data = decodeLz4BlockToByteArray(block.encodedCells, blockSize);
       const image = decodeByteArrayToImageData(data);
       results.push({image, data, x: block.x, y: block.y});
+
+      const key = utils.getKey(block.x, block.y);
+      lastGen.set(key, block.generation);
     }
   }
 
   self.postMessage({results, updateType});
 }
-
 
 function fillInnerBlockWithAlgo(packedBits: Uint8Array, previousEncodedBlock: Uint8Array) {
   const heatmap = new Uint8Array(blockSize * blockSize);
