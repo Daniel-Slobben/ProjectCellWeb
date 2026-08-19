@@ -97,6 +97,14 @@ export class BlockService implements OnDestroy {
           payload: {data: JSON.parse(message.body)},
         });
       });
+
+    setInterval(() => {
+      this.stompClient.publish({
+        destination: '/health-check',
+        body: JSON.stringify(this.clientId)
+      })
+    }, 10000)
+
   }
 
   updateVisible(visibleKeys: Set<string>): void {
