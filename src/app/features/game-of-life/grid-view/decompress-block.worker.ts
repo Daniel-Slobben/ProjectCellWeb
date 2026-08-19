@@ -4,7 +4,8 @@ import {Utils} from './utils.component';
 let blockSize: number;
 const utils = new Utils();
 
-const lastGen = new Map<string, number>();
+const blockGenerationMap = new Map<string, number>();
+const encodedBlocks = new Map<string, Uint8Array>();
 
 globalThis.onmessage = async function (e: any) {
   const {type, payload} = e.data;
@@ -13,39 +14,44 @@ globalThis.onmessage = async function (e: any) {
     return;
   }
   const results = [];
-  const updateType = payload.encodedBlocks ? 'borders' : 'full';
 
   const blockList = payload.data;
 
-  if (payload.encodedBlocks) {
-    for (const block of blockList) {
+  for (const block of blockList) {
+    const key = utils.getKey(block.x, block.y);
+
+    if (block.type === "FULL") {
+      const data = decodeLz4BlockToByteArray(block.encodedCells, blockSize);
+      const image = decodeByteArrayToImageData(data);
+      results.push({image, x: block.x, y: block.y});
+
       const key = utils.getKey(block.x, block.y);
-      const seen = lastGen.get(key);
-      if (seen !== undefined && block.generation <= seen) continue;
+      encodedBlocks.set(key, data);
+      blockGenerationMap.set(key, block.generation);
+    } else {
 
       try {
+        const seenBlockGeneration = blockGenerationMap.get(key)!;
+        if (block.generation - seenBlockGeneration !== 1) {
+          console.warn(`Saved Block Data is ${block.generation - seenBlockGeneration} generations behind Border Blocks. Has to be exactly 1.`);
+          continue;
+        }
+
         const data = decodeBorderToBlockBits(block.encodedCells, blockSize);
-        fillInnerBlockWithAlgo(data, payload.encodedBlocks.get(key));
+        fillInnerBlockWithAlgo(data, encodedBlocks.get(key)!);
         const image = decodeByteArrayToImageData(data);
-        results.push({image, data, x: block.x, y: block.y});
-        lastGen.set(key, block.generation);
+
+        results.push({image, x: block.x, y: block.y});
+        blockGenerationMap.set(key, block.generation);
+        encodedBlocks.set(key, data);
       } catch (e) {
         results.push({error: true, x: block.x, y: block.y})
         console.error(e);
       }
     }
-  } else {
-    for (const block of blockList) {
-      const data = decodeLz4BlockToByteArray(block.encodedCells, blockSize);
-      const image = decodeByteArrayToImageData(data);
-      results.push({image, data, x: block.x, y: block.y});
-
-      const key = utils.getKey(block.x, block.y);
-      lastGen.set(key, block.generation);
-    }
   }
 
-  self.postMessage({results, updateType});
+  self.postMessage({results});
 }
 
 function fillInnerBlockWithAlgo(packedBits: Uint8Array, previousEncodedBlock: Uint8Array) {

@@ -112,6 +112,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.drawnCellOffsetY == this.cellOffsetY) {
       return;
     }
+    this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
     this.drawnGeneration = this.blockService.getGeneration();
     this.drawnCellOffsetX = this.cellOffsetX;
     this.drawnCellOffsetY = this.cellOffsetY;

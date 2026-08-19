@@ -5,13 +5,11 @@ import SockJS from 'sockjs-client';
 import {Utils} from './utils.component';
 import {UpdateBlocks} from '../../../requests/UpdateBlocks';
 import {Subscription} from 'rxjs';
-import {Block} from '../../../requests/Block';
 
 @Injectable({providedIn: 'root'})
 export class BlockService implements OnDestroy {
   private readonly stompClient: RxStomp;
   private readonly blockData = new Map<string, ImageData | undefined>();
-  private readonly encodedBlockData = new Map<string, Uint8Array | undefined>();
   private generation = 0;
 
   private activeBlocks = new Set<string>();
@@ -81,7 +79,6 @@ export class BlockService implements OnDestroy {
 
         if (this.noEditKey !== key) {
           this.blockData.set(key, image);
-          this.encodedBlockData.set(key, data);
         }
       }
       if (errorKeys.length > 0) {
@@ -92,24 +89,12 @@ export class BlockService implements OnDestroy {
       }
     };
 
-    this.subscriptionFull = this.stompClient
-      .watch('/topic/full/' + this.clientId)
-      .subscribe((message: IMessage) => {
-        const blocks: Block[]= JSON.parse(message.body);
-        this.worker.postMessage({
-          type: 'payload',
-          payload: {data: JSON.parse(message.body), instant: false}
-        });
-      });
-
     this.subscription = this.stompClient
       .watch('/topic/' + this.clientId)
       .subscribe((message: IMessage) => {
-        const blocks: Block[]= JSON.parse(message.body);
-
         this.worker.postMessage({
           type: 'payload',
-          payload: {data: JSON.parse(message.body), instant: false, encodedBlocks: this.encodedBlockData},
+          payload: {data: JSON.parse(message.body)},
         });
       });
   }
