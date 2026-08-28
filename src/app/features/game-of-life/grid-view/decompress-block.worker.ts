@@ -34,6 +34,9 @@ globalThis.onmessage = async function (e: any) {
         const seenBlockGeneration = blockGenerationMap.get(key)!;
         if (block.generation - seenBlockGeneration !== 1) {
           console.warn(`Saved Block Data is ${block.generation - seenBlockGeneration} generations behind Border Blocks. Has to be exactly 1.`);
+          if (block.generation - seenBlockGeneration > 3) {
+            results.push({error: true, x: block.x, y: block.y})
+          }
           continue;
         }
 
