@@ -3,7 +3,7 @@ import {IMessage, RxStomp} from '@stomp/rx-stomp';
 import {HttpClient} from '@angular/common/http';
 import SockJS from 'sockjs-client';
 import {Utils} from './utils.component';
-import {UpdateBlocks} from '../../../requests/UpdateBlocks';
+import {ClientUpdateRequest} from '../../../requests/outgoing/ClientUpdateRequest';
 import {Subscription} from 'rxjs';
 
 @Injectable({providedIn: 'root'})
@@ -12,18 +12,20 @@ export class BlockService implements OnDestroy {
   private readonly blockData = new Map<string, ImageData | undefined>();
   private generation = 0;
 
-  private activeBlocks = new Set<string>();
+  public activeBlocks = new Set<string>();
   private publishedBlocks = new Set<string>();
 
   private noEditKey: string | undefined;
   private worker!: Worker;
   private blockSize = 0;
-  private clientId = '';
+  public clientId = '';
   private subscriptionFull?: Subscription;
   private subscription?: Subscription;
 
   private readonly publishWindowMs = 150;
   private publishTimer: ReturnType<typeof setTimeout> | null = null;
+
+  public timeUntilLastHealthcheck = new Date();
 
   constructor(private httpClient: HttpClient, private utils: Utils) {
     this.stompClient = new RxStomp();
@@ -84,7 +86,7 @@ export class BlockService implements OnDestroy {
       if (errorKeys.length > 0) {
         this.stompClient.publish({
           destination: '/block-request',
-          body: JSON.stringify(new UpdateBlocks(this.clientId, [], [])),
+          body: JSON.stringify(new ClientUpdateRequest(this.clientId, [], [])),
         });
       }
     };
@@ -99,12 +101,12 @@ export class BlockService implements OnDestroy {
       });
 
     setInterval(() => {
+      this.timeUntilLastHealthcheck = new Date();
       this.stompClient.publish({
         destination: '/health-check',
         body: JSON.stringify(this.clientId)
       })
     }, 10000)
-
   }
 
   updateVisible(visibleKeys: Set<string>): void {
@@ -151,7 +153,7 @@ export class BlockService implements OnDestroy {
 
     this.stompClient.publish({
       destination: '/client-update',
-      body: JSON.stringify(new UpdateBlocks(this.clientId, toRemove, toAdd)),
+      body: JSON.stringify(new ClientUpdateRequest(this.clientId, toRemove, toAdd)),
     });
     this.publishedBlocks = new Set(this.activeBlocks);
   }

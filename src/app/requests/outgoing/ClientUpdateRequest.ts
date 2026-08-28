@@ -1,4 +1,4 @@
-export class UpdateBlocks {
+export class ClientUpdateRequest {
   client: string;
   blocksToRemove: string[];
   blocksToAdd: string[];

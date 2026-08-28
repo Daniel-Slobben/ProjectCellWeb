@@ -3,8 +3,10 @@ import {FormsModule} from '@angular/forms';
 import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import {Utils} from './utils.component';
-import {Settings} from '../../../requests/Settings';
-import {ChaosHit} from '../../../requests/ChaosHit';
+import {Settings} from '../../../requests/incoming/Settings';
+import {ChaosHit} from '../../../requests/incoming/ChaosHit';
+import {ReconnectRequest} from '../../../requests/outgoing/ReconnectRequest';
+import {ReconnectResponse} from '../../../requests/incoming/ReconnectResponse';
 
 @Component({
   selector: 'grid-view',
@@ -75,13 +77,30 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
       this.blockSize = settings.blockSize;
       this.blockService.setup(settings.blockSize, settings.clientId)
-
-      this.centerOn(settings.chaosHit.worldX, settings.chaosHit.worldY);
-      this.currentChaosHit = settings.chaosHit;
+      this.centerOnChaosHit(settings.chaosHit);
     });
 
     this.setupCanvasEvents();
     this.startRenderLoop();
+
+    // reset on health check fail
+    setInterval(() => {
+      if (this.blockService.timeUntilLastHealthcheck.getTime() < (new Date().getTime() - 20000)) {
+        const reconnectRequest = new ReconnectRequest(Array.from(this.blockService.activeBlocks));
+        this.httpClient.post<ReconnectResponse>("/gen-api/reconnect", reconnectRequest).subscribe((reconnectResponse) => {
+          this.blockService.clientId = reconnectResponse.clientId;
+          if (reconnectResponse.chaosHit) {
+            this.centerOnChaosHit(reconnectResponse.chaosHit);
+          }
+        })
+      }
+    }, 500)
+
+  }
+
+  private centerOnChaosHit(chaosHit: ChaosHit) {
+    this.centerOn(chaosHit.worldX, chaosHit.worldY);
+    this.currentChaosHit = chaosHit;
   }
 
   ngOnDestroy() {
@@ -107,9 +126,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private updateVisibleBlocks() {
-    if (this.drawnGeneration == this.blockService.getGeneration() &&
-      this.drawnCellOffsetX == this.cellOffsetX &&
-      this.drawnCellOffsetY == this.cellOffsetY) {
+    if (this.drawnGeneration == this.blockService.getGeneration() && this.drawnCellOffsetX == this.cellOffsetX && this.drawnCellOffsetY == this.cellOffsetY) {
       return;
     }
     this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
@@ -262,6 +279,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.cellOffsetY = worldY - mouseY / this.cellSize;
     }
   }
+
   private getTouchDistance(touches: TouchList): number {
     const dx = touches[0].clientX - touches[1].clientX;
     const dy = touches[0].clientY - touches[1].clientY;
@@ -270,8 +288,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   private getTouchMidpoint(touches: TouchList): { x: number; y: number } {
     return {
-      x: (touches[0].clientX + touches[1].clientX) / 2,
-      y: (touches[0].clientY + touches[1].clientY) / 2,
+      x: (touches[0].clientX + touches[1].clientX) / 2, y: (touches[0].clientY + touches[1].clientY) / 2,
     };
   }
 
@@ -347,15 +364,14 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     canvas.addEventListener('mousemove', this.onDragMove);
 
     // Drag & Pan for Touch
-    canvas.addEventListener('touchstart', this.onTouchStart, { passive: false });
-    canvas.addEventListener('touchmove', this.onTouchMove, { passive: false });
-    canvas.addEventListener('touchend', this.onTouchEnd, { passive: false });
-    canvas.addEventListener('touchcancel', this.onTouchEnd, { passive: false });
+    canvas.addEventListener('touchstart', this.onTouchStart, {passive: false});
+    canvas.addEventListener('touchmove', this.onTouchMove, {passive: false});
+    canvas.addEventListener('touchend', this.onTouchEnd, {passive: false});
+    canvas.addEventListener('touchcancel', this.onTouchEnd, {passive: false});
 
     // Zoom
     canvas.addEventListener('wheel', this.onWheel, {passive: false});
   }
-
 
 
   public centerOn(worldX: number, worldY: number) {
