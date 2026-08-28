@@ -4,7 +4,7 @@ import {HttpClient} from '@angular/common/http';
 import SockJS from 'sockjs-client';
 import {Utils} from './utils.component';
 import {ClientUpdateRequest} from '../../../requests/outgoing/ClientUpdateRequest';
-import {Subscription} from 'rxjs';
+import {Subject, Subscription} from 'rxjs';
 
 @Injectable({providedIn: 'root'})
 export class BlockService implements OnDestroy {
@@ -25,7 +25,13 @@ export class BlockService implements OnDestroy {
   private readonly publishWindowMs = 150;
   private publishTimer: ReturnType<typeof setTimeout> | null = null;
 
-  public timeUntilLastHealthcheck = new Date();
+  private readonly healthCheckIntervalMs = 8000;
+  private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+  public lastServerContact = new Date();
+
+  private readonly sessionDeadSubject = new Subject<void>();
+  public readonly sessionDead$ = this.sessionDeadSubject.asObservable();
 
   constructor(private httpClient: HttpClient, private utils: Utils) {
     this.stompClient = new RxStomp();
@@ -33,13 +39,9 @@ export class BlockService implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (this.publishTimer !== null) {
-      clearTimeout(this.publishTimer);
-      this.publishTimer = null;
-    }
-    this.subscription?.unsubscribe();
+    this.teardownSession();
     this.subscriptionFull?.unsubscribe();
-    this.worker?.terminate();
+    this.sessionDeadSubject.complete();
     void this.stompClient.deactivate();
   }
 
@@ -96,19 +98,31 @@ export class BlockService implements OnDestroy {
     this.subscription = this.stompClient
       .watch('/topic/' + this.clientId)
       .subscribe((message: IMessage) => {
+        const body = JSON.parse(message.body);
+
+        if (body && body.type === 'HEALTH_ACK') {
+          this.lastServerContact = new Date();
+          return;
+        }
+
+        if (body && body.type === 'SESSION_DEAD') {
+          this.sessionDeadSubject.next();
+          return;
+        }
+
+        this.lastServerContact = new Date();
         this.worker.postMessage({
           type: 'payload',
-          payload: {data: JSON.parse(message.body)},
+          payload: {data: body},
         });
       });
 
-    setInterval(() => {
-      this.timeUntilLastHealthcheck = new Date();
+    this.healthCheckInterval = setInterval(() => {
       this.stompClient.publish({
         destination: '/health-check',
         body: JSON.stringify(this.clientId)
       })
-    }, 17000)
+    }, this.healthCheckIntervalMs)
   }
 
   updateVisible(visibleKeys: Set<string>): void {
@@ -176,6 +190,10 @@ export class BlockService implements OnDestroy {
     if (this.publishTimer !== null) {
       clearTimeout(this.publishTimer);
       this.publishTimer = null;
+    }
+    if (this.healthCheckInterval !== null) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
     }
     this.subscription?.unsubscribe();
     this.subscription = undefined;

@@ -7,6 +7,7 @@ import {Settings} from '../../../requests/incoming/Settings';
 import {ChaosHit} from '../../../requests/incoming/ChaosHit';
 import {ReconnectRequest} from '../../../requests/outgoing/ReconnectRequest';
 import {ReconnectResponse} from '../../../requests/incoming/ReconnectResponse';
+import {Subscription} from 'rxjs';
 
 @Component({
   selector: 'grid-view',
@@ -53,6 +54,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   private currentChaosHit!: ChaosHit;
 
+  private readonly reconnectThresholdMs = 12000;
+  private watchdogInterval: ReturnType<typeof setInterval> | null = null;
+  private sessionDeadSubscription?: Subscription;
+  private reconnectInFlight = false;
+
   constructor(private readonly httpClient: HttpClient, private readonly blockService: BlockService, private readonly utils: Utils) {
   }
 
@@ -83,20 +89,35 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.setupCanvasEvents();
     this.startRenderLoop();
 
-    // reset on health check fail
-    setInterval(() => {
-      if (this.blockService.timeUntilLastHealthcheck.getTime() < (new Date().getTime() - 21000)) {
-        const reconnectRequest = new ReconnectRequest(Array.from(this.blockService.activeBlocks));
-        this.httpClient.post<ReconnectResponse>("/gen-api/reconnect", reconnectRequest).subscribe((reconnectResponse) => {
-          this.blockService.setup(this.blockSize, reconnectResponse.clientId)
-          this.blockService.timeUntilLastHealthcheck = new Date();
-          if (reconnectResponse.chaosHit) {
-            this.centerOnChaosHit(reconnectResponse.chaosHit);
-          }
-        })
+    this.watchdogInterval = setInterval(() => {
+      if (this.blockService.lastServerContact.getTime() < Date.now() - this.reconnectThresholdMs) {
+        this.reconnect();
       }
-    }, 500)
+    }, 500);
 
+    this.sessionDeadSubscription = this.blockService.sessionDead$.subscribe(() => {
+      this.reconnect();
+    });
+  }
+
+  private reconnect(): void {
+    if (this.reconnectInFlight) return;
+    this.reconnectInFlight = true;
+
+    const reconnectRequest = new ReconnectRequest(Array.from(this.blockService.activeBlocks));
+    this.httpClient.post<ReconnectResponse>("/gen-api/reconnect", reconnectRequest).subscribe({
+      next: (reconnectResponse) => {
+        this.blockService.setup(this.blockSize, reconnectResponse.clientId);
+        this.blockService.lastServerContact = new Date();
+        if (reconnectResponse.chaosHit) {
+          this.centerOnChaosHit(reconnectResponse.chaosHit);
+        }
+        this.reconnectInFlight = false;
+      },
+      error: () => {
+        this.reconnectInFlight = false;
+      }
+    });
   }
 
   private centerOnChaosHit(chaosHit: ChaosHit) {
@@ -108,6 +129,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);
     }
+
+    if (this.watchdogInterval !== null) {
+      clearInterval(this.watchdogInterval);
+      this.watchdogInterval = null;
+    }
+    this.sessionDeadSubscription?.unsubscribe();
 
     // Clean up event listeners
     const canvas = this.canvasRef.nativeElement;
