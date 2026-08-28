@@ -57,6 +57,8 @@ export class BlockService implements OnDestroy {
   }
 
   public setup(blockSize: number, clientId: string): void {
+    this.teardownSession();
+
     this.blockSize = blockSize;
     this.clientId = clientId;
 
@@ -100,13 +102,13 @@ export class BlockService implements OnDestroy {
         });
       });
 
-    setInterval(() => {
-      this.timeUntilLastHealthcheck = new Date();
-      this.stompClient.publish({
-        destination: '/health-check',
-        body: JSON.stringify(this.clientId)
-      })
-    }, 10000)
+    // setInterval(() => {
+    //   this.timeUntilLastHealthcheck = new Date();
+    //   this.stompClient.publish({
+    //     destination: '/health-check',
+    //     body: JSON.stringify(this.clientId)
+    //   })
+    // }, 10000)
   }
 
   updateVisible(visibleKeys: Set<string>): void {
@@ -168,5 +170,21 @@ export class BlockService implements OnDestroy {
 
   setNoEditKeyTrue(key: string): void {
     this.noEditKey = key;
+  }
+
+  private teardownSession(): void {
+    if (this.publishTimer !== null) {
+      clearTimeout(this.publishTimer);
+      this.publishTimer = null;
+    }
+    this.subscription?.unsubscribe();
+    this.subscription = undefined;
+
+    this.worker?.terminate();
+
+    this.blockData.clear();
+    this.publishedBlocks.clear();
+    this.noEditKey = undefined;
+    this.generation++;
   }
 }

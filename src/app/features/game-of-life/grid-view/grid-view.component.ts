@@ -85,10 +85,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     // reset on health check fail
     setInterval(() => {
-      if (this.blockService.timeUntilLastHealthcheck.getTime() < (new Date().getTime() - 20000)) {
+      if (this.blockService.timeUntilLastHealthcheck.getTime() < (new Date().getTime() - 21000)) {
         const reconnectRequest = new ReconnectRequest(Array.from(this.blockService.activeBlocks));
         this.httpClient.post<ReconnectResponse>("/gen-api/reconnect", reconnectRequest).subscribe((reconnectResponse) => {
-          this.blockService.clientId = reconnectResponse.clientId;
+          this.blockService.setup(this.blockSize, reconnectResponse.clientId)
+          this.blockService.timeUntilLastHealthcheck = new Date();
           if (reconnectResponse.chaosHit) {
             this.centerOnChaosHit(reconnectResponse.chaosHit);
           }
