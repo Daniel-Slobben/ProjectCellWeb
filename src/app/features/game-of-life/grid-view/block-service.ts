@@ -102,13 +102,13 @@ export class BlockService implements OnDestroy {
         });
       });
 
-    // setInterval(() => {
-    //   this.timeUntilLastHealthcheck = new Date();
-    //   this.stompClient.publish({
-    //     destination: '/health-check',
-    //     body: JSON.stringify(this.clientId)
-    //   })
-    // }, 10000)
+    setInterval(() => {
+      this.timeUntilLastHealthcheck = new Date();
+      this.stompClient.publish({
+        destination: '/health-check',
+        body: JSON.stringify(this.clientId)
+      })
+    }, 17000)
   }
 
   updateVisible(visibleKeys: Set<string>): void {
