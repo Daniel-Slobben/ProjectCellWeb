@@ -21,6 +21,11 @@
       </button>
     }
     <button class="w3-bar-item w3-button w3-padding-large"
+            (click)="loadSettings()"
+            title="Reload">
+      <reload-icon></reload-icon>
+    </button>
+    <button class="w3-bar-item w3-button w3-padding-large"
             (click)="nextChaosHit(true)">
       Next
     </button>

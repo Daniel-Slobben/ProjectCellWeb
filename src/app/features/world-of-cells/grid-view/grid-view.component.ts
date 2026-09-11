@@ -8,13 +8,14 @@ import {ChaosHit} from '../../../requests/incoming/ChaosHit';
 import {ReconnectRequest} from '../../../requests/outgoing/ReconnectRequest';
 import {ReconnectResponse} from '../../../requests/incoming/ReconnectResponse';
 import {Subscription} from 'rxjs';
+import {ReloadIconComponent} from '../../../shared/icons/reload-icon.component';
 
 @Component({
   selector: 'grid-view',
   standalone: true,
   templateUrl: './grid-view.component.html',
   styleUrls: ['./grid-view.component.css'],
-  imports: [FormsModule]
+  imports: [FormsModule, ReloadIconComponent]
 })
 export class GridViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
@@ -80,11 +81,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     // Set canvas rendering optimizations
     this.ctx.imageSmoothingEnabled = false;
 
-    this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
-      this.blockSize = settings.blockSize;
-      this.blockService.setup(settings.blockSize, settings.clientId)
-      this.centerOnChaosHit(settings.chaosHit);
-    });
+    this.loadSettings();
 
     this.setupCanvasEvents();
     this.startRenderLoop();
@@ -97,6 +94,14 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.sessionDeadSubscription = this.blockService.sessionDead$.subscribe(() => {
       this.reconnect();
+    });
+  }
+
+  protected loadSettings(): void {
+    this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
+      this.blockSize = settings.blockSize;
+      this.blockService.setup(settings.blockSize, settings.clientId)
+      this.centerOnChaosHit(settings.chaosHit);
     });
   }
 
