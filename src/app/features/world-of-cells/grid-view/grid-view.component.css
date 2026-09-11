@@ -1,3 +1,15 @@
 .w3-button.wrap {
   white-space: normal;
 }
+
+.w3-bar .w3-button:active:not(:hover),
+.w3-bar .w3-button:focus:not(:hover) {
+  color: inherit !important;
+  background-color: transparent !important;
+  outline: none;
+}
+
+reload-icon {
+  position: relative;
+  left: -3px;
+}
