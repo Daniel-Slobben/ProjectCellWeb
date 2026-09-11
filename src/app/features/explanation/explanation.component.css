@@ -1,0 +1,9 @@
+.explanation-container {
+  max-width: 800px;
+  margin: 80px auto 40px;
+  padding: 0 24px;
+}
+
+.explanation-content {
+  line-height: 1.6;
+}
