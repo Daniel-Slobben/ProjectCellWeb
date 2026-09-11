@@ -1,25 +1,20 @@
-import {Component} from '@angular/core';
-import {GameOfLifeComponent} from './features/game-of-life/game-of-life.component';
-import {Router} from '@angular/router';
+import {Component, signal} from '@angular/core';
+import {WorldOfCellsComponent} from './features/world-of-cells/world-of-cells.component';
+import {ExplanationComponent} from './features/explanation/explanation.component';
+
+type View = 'world' | 'explanation';
 
 @Component({
   standalone: true,
   selector: 'app-root',
   templateUrl: 'app.component.html',
   styleUrls: ['app.component.css'],
-  imports: [GameOfLifeComponent],
+  imports: [WorldOfCellsComponent, ExplanationComponent],
 })
 export class AppComponent {
-  readonly gameOfLife: string = 'game-of-life';
-  readonly explanation: string = 'explanation';
+  readonly view = signal<View>('world');
 
-  selectedMenu: string = this.gameOfLife;
-
-  constructor(readonly router: Router) {
-  }
-
-  changeMenu(url: any) {
-    this.selectedMenu = url;
-    this.router.navigate(url);
+  show(v: View) {
+    this.view.set(v);
   }
 }

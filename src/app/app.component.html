@@ -1,15 +1,19 @@
 <div [class]="'w3-top'">
   <div class="w3-bar w3-black w3-card centered-nav">
-    <button class="w3-bar-item w3-button w3-padding-large"
-            (click)="changeMenu(gameOfLife)"
-            [class.selected]="selectedMenu === gameOfLife">
-      Game of Life
-    </button>
-    <button class="w3-bar-item w3-button w3-padding-large"
-            (click)="changeMenu(explanation)"
-            [class.selected]="selectedMenu === explanation">
+    <a class="w3-bar-item w3-button w3-padding-large"
+       (click)="show('world')"
+       [class.selected]="view() === 'world'">
+      World of Cells
+    </a>
+    <a class="w3-bar-item w3-button w3-padding-large"
+       (click)="show('explanation')"
+       [class.selected]="view() === 'explanation'">
       Explanation
-    </button>
+    </a>
   </div>
 </div>
-<app-game-of-life></app-game-of-life>
+
+<app-world-of-cells [hidden]="view() !== 'world'"></app-world-of-cells>
+@if (view() === 'explanation') {
+  <app-explanation></app-explanation>
+}

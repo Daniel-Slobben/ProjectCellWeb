@@ -2,12 +2,12 @@ import {Component} from '@angular/core';
 import {GridViewComponent} from './grid-view/grid-view.component';
 
 @Component({
-  selector: 'app-game-of-life', templateUrl: './game-of-life.component.html',
+  selector: 'app-world-of-cells', templateUrl: './world-of-cells.component.html',
   imports: [
     GridViewComponent
   ],
-  styleUrls: ['./game-of-life.component.css']
+  styleUrls: ['./world-of-cells.component.css']
 })
-export class GameOfLifeComponent {
+export class WorldOfCellsComponent {
 
 }
