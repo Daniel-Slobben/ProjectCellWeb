@@ -286,7 +286,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   private readonly onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    const zoomFactor = e.deltaY > 0 ? 0.85 : 1.15;
+    const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05;
 
     this.zoomAt(e.clientX, e.clientY, zoomFactor);
   };
