@@ -23,7 +23,9 @@ globalThis.onmessage = async function (e: any) {
     if (block.type === "FULL") {
       const data = decodeLz4BlockToByteArray(block.encodedCells, blockSize);
       const image = decodeByteArrayToImageData(data);
-      results.push({image, x: block.x, y: block.y});
+      const bitmap = await createImageBitmap(image);
+
+      results.push({bitmap, x: block.x, y: block.y});
 
       const key = utils.getKey(block.x, block.y);
       encodedBlocks.set(key, data);
@@ -43,8 +45,9 @@ globalThis.onmessage = async function (e: any) {
         const data = decodeBorderToBlockBits(block.encodedCells, blockSize);
         fillInnerBlockWithAlgo(data, encodedBlocks.get(key)!);
         const image = decodeByteArrayToImageData(data);
+        const bitmap = await createImageBitmap(image);
 
-        results.push({image, x: block.x, y: block.y});
+        results.push({bitmap, x: block.x, y: block.y});
         blockGenerationMap.set(key, block.generation);
         encodedBlocks.set(key, data);
       } catch (e) {

@@ -194,17 +194,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private drawBlockWithImageData(blockX: number, blockY: number) {
-    const offscreen = document.createElement('canvas');
-    offscreen.width = this.blockSize;
-    offscreen.height = this.blockSize;
-
     let imageData = this.blockService.getBlock(this.utils.getKey(blockX, blockY));
     if (!imageData) {
       return;
     }
 
-    const offCtx = offscreen.getContext('2d')!;
-    offCtx.putImageData(imageData, 0, 0);
     const baseX = blockX * this.blockSize;
     const baseY = blockY * this.blockSize;
 
@@ -214,10 +208,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.ctx.imageSmoothingEnabled = false;
 
-    this.ctx.drawImage(offscreen, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
+    this.ctx.drawImage(imageData, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
 
     if (this.drawBorders) {
-      console.log("drawing borders");
       this.ctx.lineWidth = 1;
       this.ctx.strokeStyle = 'rgba(128, 128, 128, 255)';
 

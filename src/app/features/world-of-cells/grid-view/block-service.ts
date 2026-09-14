@@ -9,7 +9,7 @@ import {Subject, Subscription} from 'rxjs';
 @Injectable({providedIn: 'root'})
 export class BlockService implements OnDestroy {
   private readonly stompClient: RxStomp;
-  private readonly blockData = new Map<string, ImageData | undefined>();
+  private readonly blockData = new Map<string, ImageBitmap | undefined>();
   private generation = 0;
 
   public activeBlocks = new Set<string>();
@@ -75,7 +75,7 @@ export class BlockService implements OnDestroy {
 
       const errorKeys: string[] = [];
 
-      for (const {image, data, error, x, y} of e.data.results) {
+      for (const {bitmap, data, error, x, y} of e.data.results) {
         const key = this.utils.getKey(x, y);
 
         if (error) {
@@ -84,7 +84,7 @@ export class BlockService implements OnDestroy {
         }
 
         if (this.noEditKey !== key) {
-          this.blockData.set(key, image);
+          this.blockData.set(key, bitmap);
         }
       }
       if (errorKeys.length > 0) {
@@ -174,7 +174,7 @@ export class BlockService implements OnDestroy {
     this.publishedBlocks = new Set(this.activeBlocks);
   }
 
-  getBlock(key: string): ImageData | undefined {
+  getBlock(key: string): ImageBitmap | undefined {
     return this.blockData.get(key);
   }
 
