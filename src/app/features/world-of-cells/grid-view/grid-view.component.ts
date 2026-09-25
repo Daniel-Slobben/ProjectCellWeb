@@ -23,7 +23,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   protected blockSize: number = 500;
   private cellSize = 4;
   private readonly minCellSize: number = 0.2
-  private readonly maxCellSize: number = 20;
+  private readonly maxCellSize: number = 30;
   private readonly canvasWidth = window.screen.width;
   private readonly canvasHeight = window.innerHeight - 30;
 
@@ -216,7 +216,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
       this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
     }
-
   }
 
   private readonly onClick = (e: MouseEvent) => {
@@ -229,7 +228,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.selectBlock(e);
     }
   };
-
   private startDragging(e: MouseEvent) {
     this.isDragging = true;
     this.dragStartX = e.clientX;
