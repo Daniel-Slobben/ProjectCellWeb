@@ -1,4 +1,4 @@
-import {AfterViewInit, Component, ElementRef, OnDestroy, ViewChild,} from '@angular/core';
+import {AfterViewInit, Component, ElementRef, OnDestroy, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
@@ -15,6 +15,7 @@ import {ReloadIconComponent} from '../../../shared/icons/reload-icon.component';
   standalone: true,
   templateUrl: './grid-view.component.html',
   styleUrls: ['./grid-view.component.css'],
+  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [FormsModule, ReloadIconComponent]
 })
 export class GridViewComponent implements AfterViewInit, OnDestroy {

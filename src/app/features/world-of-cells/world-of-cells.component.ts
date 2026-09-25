@@ -1,4 +1,4 @@
-import {Component} from '@angular/core';
+import {Component, ChangeDetectionStrategy} from '@angular/core';
 import {GridViewComponent} from './grid-view/grid-view.component';
 
 @Component({
@@ -6,6 +6,7 @@ import {GridViewComponent} from './grid-view/grid-view.component';
   imports: [
     GridViewComponent
   ],
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrls: ['./world-of-cells.component.css']
 })
 export class WorldOfCellsComponent {

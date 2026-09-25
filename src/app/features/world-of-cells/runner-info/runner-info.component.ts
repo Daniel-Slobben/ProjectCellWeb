@@ -1,8 +1,9 @@
-import {ChangeDetectorRef, Component} from '@angular/core'
+import {ChangeDetectorRef, Component, ChangeDetectionStrategy} from '@angular/core'
 import {HttpClient} from '@angular/common/http';
 
 @Component({
-  selector: 'runner-info', standalone: true, template: `
+  selector: 'runner-info', standalone: true, changeDetection: ChangeDetectionStrategy.Eager,
+ template: `
     <div class="p-4 border rounded bg-white shadow">
       <h3 class="text-lg font-bold mb-2">Runner Info</h3>
       <p>Amount of blocks in Memory: {{ runnerState.blocksInMemory}}</p>

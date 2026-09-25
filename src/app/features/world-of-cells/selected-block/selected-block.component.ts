@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { BlockService } from '../grid-view/block-service';
@@ -9,6 +9,7 @@ import { Utils } from '../grid-view/utils.component';
   templateUrl: './selected-block.component.html',
   styleUrls: ['./selected-block.component.css'],
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [FormsModule],
 })
 export class SelectedBlockComponent {

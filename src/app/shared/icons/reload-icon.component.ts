@@ -1,4 +1,4 @@
-import {Component} from '@angular/core';
+import {Component, ChangeDetectionStrategy} from '@angular/core';
 
 /**
  * Reload arrows drawn on a 15x15 pixel grid, to match the blocky bar font.
@@ -37,6 +37,7 @@ import {Component} from '@angular/core';
       <rect x="5" y="14" width="5" height="1"/>
     </svg>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     svg {
       height: 1em;
