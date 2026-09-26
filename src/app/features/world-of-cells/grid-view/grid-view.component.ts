@@ -1,5 +1,4 @@
-import {AfterViewInit, Component, ElementRef, OnDestroy, ViewChild, ChangeDetectionStrategy} from '@angular/core';
-import {FormsModule} from '@angular/forms';
+import {AfterViewInit, Component, ElementRef, OnDestroy, ViewChild, ChangeDetectionStrategy, signal} from '@angular/core';
 import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import {Utils} from './utils.component';
@@ -16,7 +15,7 @@ import {ReloadIconComponent} from '../../../shared/icons/reload-icon.component';
   templateUrl: './grid-view.component.html',
   styleUrls: ['./grid-view.component.css'],
   changeDetection: ChangeDetectionStrategy.Eager,
-  imports: [FormsModule, ReloadIconComponent]
+  imports: [ReloadIconComponent]
 })
 export class GridViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
@@ -30,6 +29,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   protected cellOffsetX = 0;
   protected cellOffsetY = 0;
+
+  protected readonly displayX = signal(0);
+  protected readonly displayY = signal(0);
   private ctx!: CanvasRenderingContext2D;
 
   private drawnGeneration = 0;
@@ -167,6 +169,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.drawnGeneration = this.blockService.getGeneration();
     this.drawnCellOffsetX = this.cellOffsetX;
     this.drawnCellOffsetY = this.cellOffsetY;
+
+    this.displayX.set(Math.floor(-this.cellOffsetY));
+    this.displayY.set(Math.floor(-this.cellOffsetX));
 
     const startBlockX = Math.floor(this.cellOffsetX / this.blockSize);
     const startBlockY = Math.floor(this.cellOffsetY / this.blockSize);
@@ -428,6 +433,5 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  protected readonly Math = Math;
 }
 

@@ -1,7 +1,6 @@
 import {Injectable, OnDestroy} from '@angular/core';
 import {IMessage, RxStomp} from '@stomp/rx-stomp';
 import {HttpClient} from '@angular/common/http';
-import SockJS from 'sockjs-client';
 import {Utils} from './utils.component';
 import {ClientUpdateRequest} from '../../../requests/outgoing/ClientUpdateRequest';
 import {Subject, Subscription} from 'rxjs';
@@ -51,11 +50,16 @@ export class BlockService implements OnDestroy {
 
   private configureWebSocket(): void {
     this.stompClient.configure({
-      webSocketFactory: () => new SockJS('/ws'),
+      brokerURL: BlockService.brokerUrl('/ws'),
       connectHeaders: {},
       reconnectDelay: 100,
     });
     this.stompClient.activate();
+  }
+
+  private static brokerUrl(path: string): string {
+    const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${scheme}//${window.location.host}${path}`;
   }
 
   public setup(blockSize: number, clientId: string): void {
@@ -75,7 +79,7 @@ export class BlockService implements OnDestroy {
 
       const errorKeys: string[] = [];
 
-      for (const {bitmap, data, error, x, y} of e.data.results) {
+      for (const {bitmap, error, x, y} of e.data.results) {
         const key = this.utils.getKey(x, y);
 
         if (error) {
