@@ -162,8 +162,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.drawnCellOffsetX = this.cellOffsetX;
     this.drawnCellOffsetY = this.cellOffsetY;
 
-    this.displayX.set(Math.floor(-this.cellOffsetY));
-    this.displayY.set(Math.floor(-this.cellOffsetX));
+    const centerCellX = this.cellOffsetX + (this.canvasWidth / this.cellSize) / 2;
+    const centerCellY = this.cellOffsetY + (this.canvasHeight / this.cellSize) / 2;
+
+    this.displayX.set(Math.floor(-centerCellY));
+    this.displayY.set(Math.floor(-centerCellX));
 
     const startBlockX = Math.floor(this.cellOffsetX / this.blockSize);
     const startBlockY = Math.floor(this.cellOffsetY / this.blockSize);

@@ -115,10 +115,10 @@ export class BlockService implements OnDestroy {
         }
 
         this.lastServerContact = new Date();
-        // this.worker.postMessage({
-        //   type: 'payload',
-        //   payload: {data: body},
-        // });
+        this.worker.postMessage({
+          type: 'payload',
+          payload: {data: body},
+        });
       });
 
     this.healthCheckInterval = setInterval(() => {
