@@ -51,7 +51,7 @@ export class BlockService implements OnDestroy {
     this.stompClient.configure({
       brokerURL: BlockService.brokerUrl('/ws'),
       connectHeaders: {},
-      reconnectDelay: 100,
+      reconnectDelay: 500,
     });
     this.stompClient.activate();
   }
@@ -179,14 +179,6 @@ export class BlockService implements OnDestroy {
 
   getBlock(key: string): ImageBitmap | undefined {
     return this.blockData.get(key);
-  }
-
-  setEdit(x: number, y: number, b: boolean): void {
-    this.noEditKey = b ? this.utils.getKey(x, y) : undefined;
-  }
-
-  setNoEditKeyTrue(key: string): void {
-    this.noEditKey = key;
   }
 
   private teardownSession(): void {

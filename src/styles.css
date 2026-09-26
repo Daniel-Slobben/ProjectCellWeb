@@ -1,4 +1,68 @@
-/* You can add global styles to this file, and also import other style files */
+@import '@fontsource/space-grotesk/400.css';
+@import '@fontsource/silkscreen/400.css';
+
+html { box-sizing: border-box; }
+*, *:before, *:after { box-sizing: inherit; }
+
+body {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+button, input, select, textarea, optgroup { font: inherit; margin: 0; }
+
+.w3-top, .w3-bottom {
+  position: fixed;
+  width: 100%;
+  z-index: 1;
+  font-family: "Silkscreen", monospace;
+}
+
+.w3-top { top: 0; }
+.w3-bottom { bottom: 0; }
+
+.w3-bar { width: 100%; overflow: hidden; }
+.w3-bar:before, .w3-bar:after { content: ""; display: table; clear: both; }
+
+.w3-bar .w3-bar-item {
+  padding: 8px 16px;
+  float: left;
+  width: auto;
+  border: none;
+  display: block;
+  outline: 0;
+}
+
+.w3-bar .w3-button { white-space: normal; }
+
+.w3-black { color: #fff !important; background-color: #000 !important; }
+
+.w3-card {
+  box-shadow: 0 2px 5px 0 rgba(0, 0, 0, 0.16), 0 2px 10px 0 rgba(0, 0, 0, 0.12);
+}
+
+.w3-button {
+  border: none;
+  display: inline-block;
+  padding: 8px 16px;
+  vertical-align: middle;
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  background-color: inherit;
+  text-align: center;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.w3-button:hover { color: #000 !important; background-color: #ccc !important; }
+
+.w3-padding-large { padding: 12px 24px !important; }
+
 .centered-nav {
   display: flex !important;
   justify-content: center !important;

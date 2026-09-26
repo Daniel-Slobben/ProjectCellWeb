@@ -171,8 +171,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const endBlockY = Math.floor((this.cellOffsetY + this.canvasHeight / this.cellSize) / this.blockSize);
     const currentVisibleBlocks = new Set<string>();
 
-    for (let blockX = startBlockX - 2; blockX <= endBlockX + 2; blockX++) {
-      for (let blockY = startBlockY - 2; blockY <= endBlockY + 2; blockY++) {
+    for (let blockX = startBlockX - 1; blockX <= endBlockX + 1; blockX++) {
+      for (let blockY = startBlockY - 1; blockY <= endBlockY + 1; blockY++) {
         const key = this.utils.getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
