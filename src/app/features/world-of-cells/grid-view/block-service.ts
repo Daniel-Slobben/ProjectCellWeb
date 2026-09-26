@@ -1,6 +1,5 @@
 import {Injectable, OnDestroy} from '@angular/core';
 import {IMessage, RxStomp} from '@stomp/rx-stomp';
-import {HttpClient} from '@angular/common/http';
 import {Utils} from './utils.component';
 import {ClientUpdateRequest} from '../../../requests/outgoing/ClientUpdateRequest';
 import {Subject, Subscription} from 'rxjs';
@@ -18,7 +17,7 @@ export class BlockService implements OnDestroy {
   private worker!: Worker;
   private blockSize = 0;
   public clientId = '';
-  private subscriptionFull?: Subscription;
+  private readonly subscriptionFull?: Subscription;
   private subscription?: Subscription;
 
   private readonly publishWindowMs = 150;
@@ -32,7 +31,7 @@ export class BlockService implements OnDestroy {
   private readonly sessionDeadSubject = new Subject<void>();
   public readonly sessionDead$ = this.sessionDeadSubject.asObservable();
 
-  constructor(private httpClient: HttpClient, private utils: Utils) {
+  constructor(private readonly utils: Utils) {
     this.stompClient = new RxStomp();
     this.configureWebSocket();
   }
@@ -104,12 +103,12 @@ export class BlockService implements OnDestroy {
       .subscribe((message: IMessage) => {
         const body = JSON.parse(message.body);
 
-        if (body && body.type === 'HEALTH_ACK') {
+        if (body?.type === 'HEALTH_ACK') {
           this.lastServerContact = new Date();
           return;
         }
 
-        if (body && body.type === 'SESSION_DEAD') {
+        if (body?.type === 'SESSION_DEAD') {
           this.sessionDeadSubject.next();
           return;
         }

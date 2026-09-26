@@ -1,4 +1,12 @@
-import {AfterViewInit, Component, ElementRef, OnDestroy, ViewChild, ChangeDetectionStrategy, signal} from '@angular/core';
+import {
+  AfterViewInit,
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  OnDestroy,
+  signal,
+  ViewChild
+} from '@angular/core';
 import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import {Utils} from './utils.component';
@@ -46,17 +54,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   // Touch states (for mobile panning and zooming
   private isPinching = false;
   private lastTouchDistance = 0;
-  private lastTouchMidX = 0;
-  private lastTouchMidY = 0;
 
   protected drawBorders: boolean = false;
 
   private animationFrameId?: number;
-  private lastVisibleBlocks = new Set<string>();
 
   public selectedBlock: { x: number; y: number } | null = null;
-
-  private currentChaosHit!: ChaosHit;
 
   private readonly reconnectThresholdMs = 12000;
   private watchdogInterval: ReturnType<typeof setInterval> | null = null;
@@ -81,7 +84,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.ctx.canvas.style.height = `${this.canvasHeight}px`;
     this.ctx.canvas.getContext('2d')!.setTransform(ratio, 0, 0, ratio, 0, 0);
 
-    // Set canvas rendering optimizations
     this.ctx.imageSmoothingEnabled = false;
 
     this.loadSettings();
@@ -121,8 +123,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
           this.centerOnChaosHit(reconnectResponse.chaosHit);
         }
         this.reconnectInFlight = false;
-      },
-      error: () => {
+      }, error: () => {
         this.reconnectInFlight = false;
       }
     });
@@ -130,7 +131,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   private centerOnChaosHit(chaosHit: ChaosHit) {
     this.centerOn(chaosHit.worldX, chaosHit.worldY);
-    this.currentChaosHit = chaosHit;
   }
 
   ngOnDestroy() {
@@ -143,14 +143,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.watchdogInterval = null;
     }
     this.sessionDeadSubscription?.unsubscribe();
-
-    // Clean up event listeners
-    const canvas = this.canvasRef.nativeElement;
-    canvas.removeEventListener('mousedown', this.onClick);
-    canvas.removeEventListener('mouseup', this.onDragEnd);
-    canvas.removeEventListener('mouseleave', this.onDragEnd);
-    canvas.removeEventListener('mousemove', this.onDragMove);
-    canvas.removeEventListener('wheel', this.onWheel);
   }
 
   private startRenderLoop() {
@@ -179,8 +171,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const endBlockY = Math.floor((this.cellOffsetY + this.canvasHeight / this.cellSize) / this.blockSize);
     const currentVisibleBlocks = new Set<string>();
 
-    for (let blockX = startBlockX - 1; blockX <= endBlockX + 1; blockX++) {
-      for (let blockY = startBlockY - 1; blockY <= endBlockY + 1; blockY++) {
+    for (let blockX = startBlockX - 2; blockX <= endBlockX + 2; blockX++) {
+      for (let blockY = startBlockY - 2; blockY <= endBlockY + 2; blockY++) {
         const key = this.utils.getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
@@ -195,8 +187,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       offscreen.width = this.blockSize;
       offscreen.height = this.blockSize;
     }
-
-    this.lastVisibleBlocks = currentVisibleBlocks;
   }
 
   private drawBlockWithImageData(blockX: number, blockY: number) {
@@ -225,38 +215,16 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private readonly onClick = (e: MouseEvent) => {
-    // Single Click
     if (e.detail === 1) {
       this.startDragging(e);
     }
-    // Double Click
-    if (e.detail === 2) {
-      this.selectBlock(e);
-    }
   };
+
   private startDragging(e: MouseEvent) {
     this.isDragging = true;
     this.dragStartX = e.clientX;
     this.dragStartY = e.clientY;
     this.canvasRef.nativeElement.style.cursor = 'grabbing';
-  }
-
-  private selectBlock(e: MouseEvent) {
-    const rect = this.canvasRef.nativeElement.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    // Convert mouse position to world cell coordinates
-    const worldX = this.cellOffsetX + mouseX / this.cellSize;
-    const worldY = this.cellOffsetY + mouseY / this.cellSize;
-
-    // Convert world cell coords to block coords
-    const blockX = Math.floor(worldX / this.blockSize);
-    const blockY = Math.floor(worldY / this.blockSize);
-
-    this.selectedBlock = {x: blockX, y: blockY};
-
-    // this.httpClient.get(`/gen-api/blockinfo/${blockX}/${blockY}`).subscribe(...);
   }
 
   private readonly onDragEnd = () => {
@@ -334,9 +302,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.isDragging = false;
       this.isPinching = true;
       this.lastTouchDistance = this.getTouchDistance(e.touches);
-      const mid = this.getTouchMidpoint(e.touches);
-      this.lastTouchMidX = mid.x;
-      this.lastTouchMidY = mid.y;
     }
   };
 
@@ -351,8 +316,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.zoomAt(mid.x, mid.y, zoomFactor);
 
       this.lastTouchDistance = newDistance;
-      this.lastTouchMidX = mid.x;
-      this.lastTouchMidY = mid.y;
     } else if (this.isDragging && e.touches.length === 1) {
       const touch = e.touches[0];
       const dx = touch.clientX - this.dragStartX;
@@ -374,8 +337,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.isDragging = false;
       this.isPinching = false;
     } else if (e.touches.length === 1) {
-
-      // Went from pinch to single-touch drag — reset drag start to avoid a jump
       this.isPinching = false;
       this.isDragging = true;
       this.dragStartX = e.touches[0].clientX;
@@ -387,50 +348,27 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const canvas = this.canvasRef.nativeElement;
     canvas.style.cursor = 'grab';
 
-    // Drag & Pan for Mouse
+    // Mouse
     canvas.addEventListener('mousedown', this.onClick);
     canvas.addEventListener('mouseup', this.onDragEnd);
     canvas.addEventListener('mouseleave', this.onDragEnd);
     canvas.addEventListener('mousemove', this.onDragMove);
+    canvas.addEventListener('wheel', this.onWheel, {passive: false});
 
-    // Drag & Pan for Touch
+    // Touch
     canvas.addEventListener('touchstart', this.onTouchStart, {passive: false});
     canvas.addEventListener('touchmove', this.onTouchMove, {passive: false});
     canvas.addEventListener('touchend', this.onTouchEnd, {passive: false});
     canvas.addEventListener('touchcancel', this.onTouchEnd, {passive: false});
-
-    // Zoom
-    canvas.addEventListener('wheel', this.onWheel, {passive: false});
   }
-
 
   public centerOn(worldX: number, worldY: number) {
     this.cellOffsetX = worldX - (this.canvasWidth / this.cellSize) / 2;
     this.cellOffsetY = worldY - (this.canvasHeight / this.cellSize) / 2;
   }
 
-  public get currentZoom(): number {
-    return this.cellSize;
-  }
-
-  public get currentOffset(): { x: number, y: number } {
-    return {x: this.cellOffsetX, y: this.cellOffsetY};
-  }
-
-  public get visibleBlockCount(): number {
-    return this.lastVisibleBlocks.size;
-  }
-
   protected toggleBlockBorders() {
     this.drawBorders = !this.drawBorders;
-  }
-
-  protected nextChaosHit(goNextHit: boolean) {
-    console.log("getting next chaoshit");
-    this.httpClient.get<ChaosHit>(`/gen-api/next-chaos-hit/${this.currentChaosHit.id}/${goNextHit}`).subscribe((chaosHit) => {
-      this.centerOn(chaosHit.worldX, chaosHit.worldY);
-      this.currentChaosHit = chaosHit;
-    });
   }
 
 }
