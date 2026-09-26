@@ -1,5 +1,6 @@
 import { decompressBlock } from 'lz4js';
 import { getKey } from './utils.component';
+import {Block} from '../../../requests/incoming/Block';
 
 let blockSize: number;
 
@@ -10,11 +11,10 @@ globalThis.onmessage = async function (e: any) {
   const {type, payload} = e.data;
   if (type === 'init') {
     blockSize = payload.blockSize;
-    return;
   }
   const results = [];
 
-  const blockList = payload.data;
+  const blockList: Block[] = payload.data;
 
   for (const block of blockList) {
     const key = getKey(block.x, block.y);

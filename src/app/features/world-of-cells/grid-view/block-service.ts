@@ -3,6 +3,7 @@ import {IMessage, RxStomp} from '@stomp/rx-stomp';
 import {ClientUpdateRequest} from '../../../requests/outgoing/ClientUpdateRequest';
 import {Subject, Subscription} from 'rxjs';
 import {getKey} from './utils.component';
+import {Block} from '../../../requests/incoming/Block';
 
 @Injectable({providedIn: 'root'})
 export class BlockService implements OnDestroy {
@@ -61,7 +62,7 @@ export class BlockService implements OnDestroy {
     return `${scheme}//${window.location.host}${path}`;
   }
 
-  public setup(blockSize: number, clientId: string): void {
+  public setup(blockSize: number, clientId: string, blocks: Block[]): void {
     this.teardownSession();
 
     this.blockSize = blockSize;
@@ -71,7 +72,7 @@ export class BlockService implements OnDestroy {
       new URL('./decompress-block.worker.ts', import.meta.url),
       {type: 'module'},
     );
-    this.worker.postMessage({type: 'init', payload: {blockSize: this.blockSize}});
+    this.worker.postMessage({type: 'init', payload: {blockSize: this.blockSize, data: blocks}});
 
     this.worker.onmessage = (e) => {
       this.generation++;
@@ -114,10 +115,10 @@ export class BlockService implements OnDestroy {
         }
 
         this.lastServerContact = new Date();
-        this.worker.postMessage({
-          type: 'payload',
-          payload: {data: body},
-        });
+        // this.worker.postMessage({
+        //   type: 'payload',
+        //   payload: {data: body},
+        // });
       });
 
     this.healthCheckInterval = setInterval(() => {
