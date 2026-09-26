@@ -1,8 +1,8 @@
 import {Injectable, OnDestroy} from '@angular/core';
 import {IMessage, RxStomp} from '@stomp/rx-stomp';
-import {Utils} from './utils.component';
 import {ClientUpdateRequest} from '../../../requests/outgoing/ClientUpdateRequest';
 import {Subject, Subscription} from 'rxjs';
+import {getKey} from './utils.component';
 
 @Injectable({providedIn: 'root'})
 export class BlockService implements OnDestroy {
@@ -31,7 +31,7 @@ export class BlockService implements OnDestroy {
   private readonly sessionDeadSubject = new Subject<void>();
   public readonly sessionDead$ = this.sessionDeadSubject.asObservable();
 
-  constructor(private readonly utils: Utils) {
+  constructor() {
     this.stompClient = new RxStomp();
     this.configureWebSocket();
   }
@@ -79,7 +79,7 @@ export class BlockService implements OnDestroy {
       const errorKeys: string[] = [];
 
       for (const {bitmap, error, x, y} of e.data.results) {
-        const key = this.utils.getKey(x, y);
+        const key = getKey(x, y);
 
         if (error) {
           errorKeys.push(key);

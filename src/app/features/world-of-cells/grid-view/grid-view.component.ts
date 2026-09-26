@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
-import {Utils} from './utils.component';
+import { getKey } from './utils.component';
 import {Settings} from '../../../requests/incoming/Settings';
 import {ChaosHit} from '../../../requests/incoming/ChaosHit';
 import {ReconnectRequest} from '../../../requests/outgoing/ReconnectRequest';
@@ -66,7 +66,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private sessionDeadSubscription?: Subscription;
   private reconnectInFlight = false;
 
-  constructor(private readonly httpClient: HttpClient, private readonly blockService: BlockService, private readonly utils: Utils) {
+  constructor(private readonly httpClient: HttpClient, private readonly blockService: BlockService) {
   }
 
   ngAfterViewInit() {
@@ -173,7 +173,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     for (let blockX = startBlockX - 1; blockX <= endBlockX + 1; blockX++) {
       for (let blockY = startBlockY - 1; blockY <= endBlockY + 1; blockY++) {
-        const key = this.utils.getKey(blockX, blockY);
+        const key = getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
           this.drawBlockWithImageData(blockX, blockY);
@@ -190,7 +190,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private drawBlockWithImageData(blockX: number, blockY: number) {
-    let imageData = this.blockService.getBlock(this.utils.getKey(blockX, blockY));
+    let imageData = this.blockService.getBlock(getKey(blockX, blockY));
     if (!imageData) {
       return;
     }

@@ -1,8 +1,7 @@
-import {decompressBlock} from 'lz4js';
-import {Utils} from './utils.component';
+import { decompressBlock } from 'lz4js';
+import { getKey } from './utils.component';
 
 let blockSize: number;
-const utils = new Utils();
 
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
@@ -18,7 +17,7 @@ globalThis.onmessage = async function (e: any) {
   const blockList = payload.data;
 
   for (const block of blockList) {
-    const key = utils.getKey(block.x, block.y);
+    const key = getKey(block.x, block.y);
 
     if (block.type === "FULL") {
       const data = decodeLz4BlockToByteArray(block.encodedCells, blockSize);
@@ -27,7 +26,7 @@ globalThis.onmessage = async function (e: any) {
 
       results.push({bitmap, x: block.x, y: block.y});
 
-      const key = utils.getKey(block.x, block.y);
+      const key = getKey(block.x, block.y);
       encodedBlocks.set(key, data);
       blockGenerationMap.set(key, block.generation);
     } else {
