@@ -106,7 +106,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
       this.blockSize = settings.blockSize;
       this.blockService.setup(settings.blockSize, settings.clientId, settings.blocks)
-      this.centerOnChaosHit(settings.chaosHit);
+      this.centerOn(settings.chaosHit.worldX, settings.chaosHit.worldY);
     });
   }
 
@@ -120,17 +120,13 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         this.blockService.setup(this.blockSize, reconnectResponse.clientId, []);
         this.blockService.lastServerContact = new Date();
         if (reconnectResponse.chaosHit) {
-          this.centerOnChaosHit(reconnectResponse.chaosHit);
+          this.centerOn(reconnectResponse.chaosHit.worldX, reconnectResponse.chaosHit.worldY);
         }
         this.reconnectInFlight = false;
       }, error: () => {
         this.reconnectInFlight = false;
       }
     });
-  }
-
-  private centerOnChaosHit(chaosHit: ChaosHit) {
-    this.centerOn(chaosHit.worldX, chaosHit.worldY);
   }
 
   ngOnDestroy() {
