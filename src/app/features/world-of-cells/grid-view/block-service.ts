@@ -130,7 +130,7 @@ export class BlockService implements OnDestroy {
   }
 
   updateVisible(visibleKeys: Set<string>): void {
-    for (const key of this.activeBlocks) {
+    for (const key of this.blockData.keys()) {
       if (!visibleKeys.has(key)) {
         this.blockData.delete(key);
       }
