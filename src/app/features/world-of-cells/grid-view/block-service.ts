@@ -157,7 +157,12 @@ export class BlockService implements OnDestroy {
       }
 
       if (this.noEditKey !== key) {
+        // Release the texture we are replacing now instead of waiting for GC; a tick
+        // at far zoom swaps hundreds of them.
+        this.blockData.get(key)?.close();
         this.blockData.set(key, bitmap);
+      } else {
+        bitmap?.close();
       }
     }
     if (hasError) {
@@ -177,8 +182,9 @@ export class BlockService implements OnDestroy {
   }
 
   updateVisible(visibleKeys: Set<string>): void {
-    for (const key of this.blockData.keys()) {
+    for (const [key, bitmap] of this.blockData) {
       if (!visibleKeys.has(key)) {
+        bitmap?.close();
         this.blockData.delete(key);
       }
     }
@@ -187,13 +193,21 @@ export class BlockService implements OnDestroy {
     this.schedulePublish();
   }
 
+  /**
+   * Leading-edge coalescing: the first change goes out immediately, then further
+   * changes inside the window are batched into one trailing publish. A pan's first
+   * new block no longer waits the whole window, while continuous panning still
+   * sends at most one message per window.
+   */
   private schedulePublish(): void {
     if (this.publishTimer !== null) return;
     if (!this.hasDrift()) return;
 
+    this.publishDelta();
+
     this.publishTimer = setTimeout(() => {
       this.publishTimer = null;
-      this.publishDelta();
+      if (this.hasDrift()) this.schedulePublish();
     }, this.publishWindowMs);
   }
 
