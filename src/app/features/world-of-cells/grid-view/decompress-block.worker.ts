@@ -16,15 +16,26 @@ const encodedBlocks = new Map<string, Uint8Array>();
 let queue: Promise<void> = Promise.resolve();
 
 globalThis.onmessage = function (e: any) {
-  queue = queue.then(() => handleMessage(e.data)).catch((err) => console.error(err));
+  queue = queue.then(() => handleMessage(e.data));
 };
 
-async function handleMessage({type, payload}: any): Promise<void> {
+// Every batch gets exactly one reply, even an empty or failed one, because the main
+// thread holds the whole tick back until all workers in the batch have answered.
+async function handleMessage({type, batchId, payload}: any): Promise<void> {
+  const results: any[] = [];
+  const bitmaps: ImageBitmap[] = [];
+  try {
+    await decodeBatch(type, payload, results, bitmaps);
+  } catch (err) {
+    console.error(err);
+  }
+  self.postMessage({batchId, results}, {transfer: bitmaps});
+}
+
+async function decodeBatch(type: string, payload: any, results: any[], bitmaps: ImageBitmap[]): Promise<void> {
   if (type === 'init') {
     blockSize = payload.blockSize;
   }
-  const results: any[] = [];
-  const bitmaps: ImageBitmap[] = [];
 
   const blockList: Block[] = payload.data;
 
@@ -69,9 +80,6 @@ async function handleMessage({type, payload}: any): Promise<void> {
     }
   }
 
-  if (results.length === 0) return;
-  // Transfer the bitmaps rather than cloning them; the worker has no further use for them.
-  self.postMessage({results}, {transfer: bitmaps});
 }
 
 function fillInnerBlockWithAlgo(packedBits: Uint8Array, previousEncodedBlock: Uint8Array) {

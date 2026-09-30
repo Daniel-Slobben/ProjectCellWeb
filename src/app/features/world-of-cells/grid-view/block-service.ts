@@ -5,6 +5,20 @@ import {Subject, Subscription} from 'rxjs';
 import {getKey} from './utils.component';
 import {Block} from '../../../requests/incoming/Block';
 
+interface WorkerResult {
+  bitmap?: ImageBitmap;
+  error?: boolean;
+  x: number;
+  y: number;
+}
+
+interface PendingBatch {
+  id: number;
+  /** Workers that still owe a reply for this batch. */
+  pending: number;
+  results: WorkerResult[];
+}
+
 @Injectable({providedIn: 'root'})
 export class BlockService implements OnDestroy {
   private readonly stompClient: RxStomp;
@@ -23,6 +37,9 @@ export class BlockService implements OnDestroy {
    */
   private workers: Worker[] = [];
   private readonly maxWorkers = 8;
+  /** Batches dispatched but not yet fully answered, oldest first. */
+  private pendingBatches: PendingBatch[] = [];
+  private lastBatchId = 0;
   /** Several workers can hit a resend error in one tick; ask the backend only once. */
   private resendTimer: ReturnType<typeof setTimeout> | null = null;
   private blockSize = 0;
@@ -115,25 +132,37 @@ export class BlockService implements OnDestroy {
         new URL('./decompress-block.worker.ts', import.meta.url),
         {type: 'module'},
       );
-      worker.onmessage = (e) => this.onWorkerResults(e.data.results);
+      worker.onmessage = (e) => this.onWorkerResults(e.data.batchId, e.data.results);
       this.workers.push(worker);
     }
 
     this.dispatchToWorkers('init', blocks);
   }
 
-  /** Splits a batch by owning worker and posts each worker only its own blocks. */
+  /**
+   * Splits a batch by owning worker and posts each worker only its own blocks.
+   * The batch is tracked so its results can be committed as one tick once every
+   * worker involved has replied; see onWorkerResults.
+   */
   private dispatchToWorkers(type: 'init' | 'payload', blocks: Block[]): void {
     const perWorker: Block[][] = this.workers.map(() => []);
     for (const block of blocks) {
       perWorker[this.workerIndex(block.x, block.y)].push(block);
     }
 
+    const batchId = ++this.lastBatchId;
+    const batch: PendingBatch = {id: batchId, pending: 0, results: []};
+
     perWorker.forEach((data, i) => {
       // init must reach every worker so it learns blockSize, even with nothing to decode.
       if (type === 'payload' && data.length === 0) return;
-      this.workers[i].postMessage({type, payload: {blockSize: this.blockSize, data}});
+      batch.pending++;
+      this.workers[i].postMessage({type, batchId, payload: {blockSize: this.blockSize, data}});
     });
+
+    if (batch.pending > 0) {
+      this.pendingBatches.push(batch);
+    }
   }
 
   private workerIndex(x: number, y: number): number {
@@ -143,7 +172,25 @@ export class BlockService implements OnDestroy {
     return hash % this.workers.length;
   }
 
-  private onWorkerResults(results: { bitmap?: ImageBitmap; error?: boolean; x: number; y: number }[]): void {
+  /**
+   * Buffers a worker's share of a batch. Nothing is shown until every worker in that
+   * batch has replied, so all blocks of a tick appear in the same frame. Batches are
+   * committed strictly in dispatch order, so a slow worker on an earlier tick can
+   * never be overwritten by a faster later one and then land on top of it.
+   */
+  private onWorkerResults(batchId: number, results: WorkerResult[]): void {
+    const batch = this.pendingBatches.find((b) => b.id === batchId);
+    if (!batch) return; // from a session that has since been torn down
+
+    batch.results.push(...results);
+    batch.pending--;
+
+    while (this.pendingBatches.length > 0 && this.pendingBatches[0].pending === 0) {
+      this.commitBatch(this.pendingBatches.shift()!.results);
+    }
+  }
+
+  private commitBatch(results: WorkerResult[]): void {
     this.generation++;
 
     let hasError = false;
@@ -263,6 +310,10 @@ export class BlockService implements OnDestroy {
       worker.terminate();
     }
     this.workers = [];
+    for (const batch of this.pendingBatches) {
+      for (const result of batch.results) result.bitmap?.close();
+    }
+    this.pendingBatches = [];
 
     this.blockData.clear();
     this.publishedBlocks.clear();
