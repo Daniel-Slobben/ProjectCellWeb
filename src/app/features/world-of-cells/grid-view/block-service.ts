@@ -40,6 +40,7 @@ export class BlockService implements OnDestroy {
   /** Batches dispatched but not yet fully answered, oldest first. */
   private pendingBatches: PendingBatch[] = [];
   private lastBatchId = 0;
+  private poolFactor = 1;
   /** Several workers can hit a resend error in one tick; ask the backend only once. */
   private resendTimer: ReturnType<typeof setTimeout> | null = null;
   private blockSize = 0;
@@ -144,7 +145,7 @@ export class BlockService implements OnDestroy {
    * The batch is tracked so its results can be committed as one tick once every
    * worker involved has replied; see onWorkerResults.
    */
-  private dispatchToWorkers(type: 'init' | 'payload', blocks: Block[]): void {
+  private dispatchToWorkers(type: 'init' | 'payload' | 'rescale', blocks: Block[]): void {
     const perWorker: Block[][] = this.workers.map(() => []);
     for (const block of blocks) {
       perWorker[this.workerIndex(block.x, block.y)].push(block);
@@ -154,14 +155,30 @@ export class BlockService implements OnDestroy {
     const batch: PendingBatch = {id: batchId, pending: 0, results: []};
 
     perWorker.forEach((data, i) => {
-      // init must reach every worker so it learns blockSize, even with nothing to decode.
+      // init and rescale must reach every worker, even with nothing to decode.
       if (type === 'payload' && data.length === 0) return;
       batch.pending++;
-      this.workers[i].postMessage({type, batchId, payload: {blockSize: this.blockSize, data}});
+      this.workers[i].postMessage({
+        type,
+        batchId,
+        payload: {blockSize: this.blockSize, poolFactor: this.poolFactor, data},
+      });
     });
 
     if (batch.pending > 0) {
       this.pendingBatches.push(batch);
+    }
+  }
+
+  /**
+   * Zoom-driven: bitmaps are built at blockSize / factor with density shading. Workers
+   * rebuild what they hold, and the rebuild commits as one batch like any tick.
+   */
+  setPoolFactor(factor: number): void {
+    if (factor === this.poolFactor) return;
+    this.poolFactor = factor;
+    if (this.workers.length > 0) {
+      this.dispatchToWorkers('rescale', []);
     }
   }
 
