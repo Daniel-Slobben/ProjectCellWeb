@@ -2,17 +2,29 @@ import { decompressBlock } from 'lz4js';
 import { getKey } from './utils.component';
 import {Block} from '../../../requests/incoming/Block';
 
+// One instance of this worker owns a fixed subset of block keys, chosen by the
+// BlockService's routing hash. A block's FULL baseline and generation live in exactly
+// one worker, so the pool needs no coordination between workers.
 let blockSize: number;
 
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 
-globalThis.onmessage = async function (e: any) {
-  const {type, payload} = e.data;
+// Messages are handled strictly one after the other. An async onmessage on its own
+// would let a second batch start while the first awaits createImageBitmap, so a delta
+// could run before the FULL it builds on has been stored.
+let queue: Promise<void> = Promise.resolve();
+
+globalThis.onmessage = function (e: any) {
+  queue = queue.then(() => handleMessage(e.data)).catch((err) => console.error(err));
+};
+
+async function handleMessage({type, payload}: any): Promise<void> {
   if (type === 'init') {
     blockSize = payload.blockSize;
   }
-  const results = [];
+  const results: any[] = [];
+  const bitmaps: ImageBitmap[] = [];
 
   const blockList: Block[] = payload.data;
 
@@ -25,8 +37,8 @@ globalThis.onmessage = async function (e: any) {
       const bitmap = await createImageBitmap(image);
 
       results.push({bitmap, x: block.x, y: block.y});
+      bitmaps.push(bitmap);
 
-      const key = getKey(block.x, block.y);
       encodedBlocks.set(key, data);
       blockGenerationMap.set(key, block.generation);
     } else {
@@ -47,6 +59,7 @@ globalThis.onmessage = async function (e: any) {
         const bitmap = await createImageBitmap(image);
 
         results.push({bitmap, x: block.x, y: block.y});
+        bitmaps.push(bitmap);
         blockGenerationMap.set(key, block.generation);
         encodedBlocks.set(key, data);
       } catch (e) {
@@ -56,7 +69,9 @@ globalThis.onmessage = async function (e: any) {
     }
   }
 
-  self.postMessage({results});
+  if (results.length === 0) return;
+  // Transfer the bitmaps rather than cloning them; the worker has no further use for them.
+  self.postMessage({results}, {transfer: bitmaps});
 }
 
 function fillInnerBlockWithAlgo(packedBits: Uint8Array, previousEncodedBlock: Uint8Array) {

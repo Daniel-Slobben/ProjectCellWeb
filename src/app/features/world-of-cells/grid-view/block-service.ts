@@ -15,7 +15,16 @@ export class BlockService implements OnDestroy {
   private publishedBlocks = new Set<string>();
 
   private noEditKey: string | undefined;
-  private worker!: Worker;
+  /**
+   * Decompression and the Life step run in a pool of workers, one per spare core.
+   * A block is always routed to the same worker (see workerIndex), so each worker
+   * holds the FULL baseline for its own keys and per-key ordering stays strict
+   * without any coordination between workers.
+   */
+  private workers: Worker[] = [];
+  private readonly maxWorkers = 8;
+  /** Several workers can hit a resend error in one tick; ask the backend only once. */
+  private resendTimer: ReturnType<typeof setTimeout> | null = null;
   private blockSize = 0;
   public clientId = '';
   private readonly subscriptionFull?: Subscription;
@@ -68,36 +77,7 @@ export class BlockService implements OnDestroy {
     this.blockSize = blockSize;
     this.clientId = clientId;
 
-    this.worker = new Worker(
-      new URL('./decompress-block.worker.ts', import.meta.url),
-      {type: 'module'},
-    );
-    this.worker.postMessage({type: 'init', payload: {blockSize: this.blockSize, data: blocks}});
-
-    this.worker.onmessage = (e) => {
-      this.generation++;
-
-      const errorKeys: string[] = [];
-
-      for (const {bitmap, error, x, y} of e.data.results) {
-        const key = getKey(x, y);
-
-        if (error) {
-          errorKeys.push(key);
-          continue;
-        }
-
-        if (this.noEditKey !== key) {
-          this.blockData.set(key, bitmap);
-        }
-      }
-      if (errorKeys.length > 0) {
-        this.stompClient.publish({
-          destination: '/block-request',
-          body: JSON.stringify(new ClientUpdateRequest(this.clientId, [], [])),
-        });
-      }
-    };
+    this.createWorkerPool(blocks);
 
     this.subscription = this.stompClient
       .watch('/topic/' + this.clientId)
@@ -115,10 +95,7 @@ export class BlockService implements OnDestroy {
         }
 
         this.lastServerContact = new Date();
-        this.worker.postMessage({
-          type: 'payload',
-          payload: {data: body},
-        });
+        this.dispatchToWorkers('payload', body);
       });
 
     this.healthCheckInterval = setInterval(() => {
@@ -127,6 +104,76 @@ export class BlockService implements OnDestroy {
         body: JSON.stringify(this.clientId)
       })
     }, this.healthCheckIntervalMs)
+  }
+
+  private createWorkerPool(blocks: Block[]): void {
+    const cores = navigator.hardwareConcurrency || 4;
+    const count = Math.max(1, Math.min(this.maxWorkers, cores - 1));
+
+    for (let i = 0; i < count; i++) {
+      const worker = new Worker(
+        new URL('./decompress-block.worker.ts', import.meta.url),
+        {type: 'module'},
+      );
+      worker.onmessage = (e) => this.onWorkerResults(e.data.results);
+      this.workers.push(worker);
+    }
+
+    this.dispatchToWorkers('init', blocks);
+  }
+
+  /** Splits a batch by owning worker and posts each worker only its own blocks. */
+  private dispatchToWorkers(type: 'init' | 'payload', blocks: Block[]): void {
+    const perWorker: Block[][] = this.workers.map(() => []);
+    for (const block of blocks) {
+      perWorker[this.workerIndex(block.x, block.y)].push(block);
+    }
+
+    perWorker.forEach((data, i) => {
+      // init must reach every worker so it learns blockSize, even with nothing to decode.
+      if (type === 'payload' && data.length === 0) return;
+      this.workers[i].postMessage({type, payload: {blockSize: this.blockSize, data}});
+    });
+  }
+
+  private workerIndex(x: number, y: number): number {
+    // Two large primes spread neighbouring blocks over different workers, so a
+    // viewport of adjacent blocks does not pile onto one of them.
+    const hash = (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
+    return hash % this.workers.length;
+  }
+
+  private onWorkerResults(results: { bitmap?: ImageBitmap; error?: boolean; x: number; y: number }[]): void {
+    this.generation++;
+
+    let hasError = false;
+
+    for (const {bitmap, error, x, y} of results) {
+      const key = getKey(x, y);
+
+      if (error) {
+        hasError = true;
+        continue;
+      }
+
+      if (this.noEditKey !== key) {
+        this.blockData.set(key, bitmap);
+      }
+    }
+    if (hasError) {
+      this.scheduleFullResend();
+    }
+  }
+
+  private scheduleFullResend(): void {
+    if (this.resendTimer !== null) return;
+    this.resendTimer = setTimeout(() => {
+      this.resendTimer = null;
+      this.stompClient.publish({
+        destination: '/block-request',
+        body: JSON.stringify(new ClientUpdateRequest(this.clientId, [], [])),
+      });
+    }, 0);
   }
 
   updateVisible(visibleKeys: Set<string>): void {
@@ -194,7 +241,14 @@ export class BlockService implements OnDestroy {
     this.subscription?.unsubscribe();
     this.subscription = undefined;
 
-    this.worker?.terminate();
+    if (this.resendTimer !== null) {
+      clearTimeout(this.resendTimer);
+      this.resendTimer = null;
+    }
+    for (const worker of this.workers) {
+      worker.terminate();
+    }
+    this.workers = [];
 
     this.blockData.clear();
     this.publishedBlocks.clear();
