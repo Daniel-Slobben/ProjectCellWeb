@@ -11,7 +11,6 @@ import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import { getKey } from './utils.component';
 import {Settings} from '../../../requests/incoming/Settings';
-import {ChaosHit} from '../../../requests/incoming/ChaosHit';
 import {ReconnectRequest} from '../../../requests/outgoing/ReconnectRequest';
 import {ReconnectResponse} from '../../../requests/incoming/ReconnectResponse';
 import {Subscription} from 'rxjs';
@@ -50,17 +49,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private isDragging = false;
   private dragStartX = 0;
   private dragStartY = 0;
-
-  // Directional prefetch: subscribe to where the viewport will be shortly, so a pan
-  // finds blocks already loaded instead of holes. Sized from pan speed, not a fixed count.
-  private panVelocityX = 0; // world cells per second, positive when revealing +x
-  private panVelocityY = 0;
-  private lastPanTime = 0;
-  /** No pan events for this long means we stopped; the lead collapses to zero. */
-  private readonly panIdleMs = 150;
-  /** How far ahead in time to cover. Roughly publish window plus round trip plus decode. */
-  private readonly prefetchLookaheadS = 0.6;
-  private readonly maxPrefetchBlocks = 4;
 
   /**
    * How many halvings of zoom to let the canvas absorb before the worker pools
@@ -190,14 +178,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const endBlockY = Math.floor((this.cellOffsetY + this.canvasHeight / this.cellSize) / this.blockSize);
     const currentVisibleBlocks = new Set<string>();
 
-    // One block ring on every side for jitter and zoom-out, plus a lead on the side
-    // we are panning towards.
-    const leadX = this.prefetchLead(this.panVelocityX);
-    const leadY = this.prefetchLead(this.panVelocityY);
-    const subStartX = startBlockX - 1 + Math.min(0, leadX);
-    const subEndX = endBlockX + 1 + Math.max(0, leadX);
-    const subStartY = startBlockY - 1 + Math.min(0, leadY);
-    const subEndY = endBlockY + 1 + Math.max(0, leadY);
+    // One block ring on every side for jitter and zoom-out.
+    const subStartX = startBlockX - 1;
+    const subEndX = endBlockX + 1;
+    const subStartY = startBlockY - 1;
+    const subEndY = endBlockY + 1;
 
     for (let blockX = subStartX; blockX <= subEndX; blockX++) {
       for (let blockY = subStartY; blockY <= subEndY; blockY++) {
@@ -208,7 +193,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         }
       }
     }
-    this.blockService.updateVisible(currentVisibleBlocks);
+    this.blockService.updateVisible(currentVisibleBlocks, {
+      minX: subStartX,
+      minY: subStartY,
+      maxX: subEndX,
+      maxY: subEndY,
+    });
 
     if (this.selectedBlock != undefined) {
       const offscreen = document.createElement('canvas');
@@ -272,27 +262,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.panByPixels(dx, dy);
   };
 
-  /**
-   * Applies a drag in screen pixels and updates the pan velocity estimate that the
-   * directional prefetch reads. Velocity is in world cells per second, so the same
-   * finger speed yields a longer lead the further out you are zoomed.
-   */
   private panByPixels(dx: number, dy: number): void {
-    const movedX = dx / this.cellSize;
-    const movedY = dy / this.cellSize;
-
-    this.cellOffsetX -= movedX;
-    this.cellOffsetY -= movedY;
-
-    const now = performance.now();
-    const dt = (now - this.lastPanTime) / 1000;
-    this.lastPanTime = now;
-    if (dt <= 0 || dt > 0.25) return; // first move after a pause carries no usable speed
-
-    // Exponential smoothing so one jittery mouse event cannot flip the lead direction.
-    const alpha = 0.3;
-    this.panVelocityX += ((-movedX / dt) - this.panVelocityX) * alpha;
-    this.panVelocityY += ((-movedY / dt) - this.panVelocityY) * alpha;
+    this.cellOffsetX -= dx / this.cellSize;
+    this.cellOffsetY -= dy / this.cellSize;
   }
 
   /**
@@ -308,13 +280,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     if (devicePixelsPerCell >= 1) return 1;
     const steps = Math.ceil(Math.log2(1 / devicePixelsPerCell)) - this.poolStepsBehindZoom;
     return Math.pow(2, Math.max(0, steps));
-  }
-
-  private prefetchLead(velocity: number): number {
-    if (performance.now() - this.lastPanTime > this.panIdleMs) return 0;
-    const cellsAhead = velocity * this.prefetchLookaheadS;
-    const blocks = Math.trunc(cellsAhead / this.blockSize);
-    return Math.max(-this.maxPrefetchBlocks, Math.min(this.maxPrefetchBlocks, blocks));
   }
 
   private readonly onWheel = (e: WheelEvent) => {

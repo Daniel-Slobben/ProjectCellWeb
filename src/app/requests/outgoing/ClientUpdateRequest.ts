@@ -1,11 +1,11 @@
 export class ClientUpdateRequest {
   client: string;
-  blocksToRemove: string[];
-  blocksToAdd: string[];
+  keyTopLeft: string;
+  keyBottomRight: string;
 
-  constructor(uuid: string, blocksToRemove: string[], blocksToAdd: string[]) {
+  constructor(uuid: string, keyTopLeft: string, keyBottomRight: string) {
     this.client = uuid;
-    this.blocksToRemove = blocksToRemove;
-    this.blocksToAdd = blocksToAdd;
+    this.keyTopLeft = keyTopLeft;
+    this.keyBottomRight = keyBottomRight;
   }
 }
