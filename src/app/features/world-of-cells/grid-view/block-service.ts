@@ -147,7 +147,8 @@ export class BlockService implements OnDestroy {
   private dispatchToWorkers(type: 'init' | 'payload', blocks: Block[]): void {
     const perWorker: Block[][] = this.workers.map(() => []);
     for (const block of blocks) {
-      perWorker[this.workerIndex(block.x, block.y)].push(block);
+      let worker = Math.abs(block.x + block.y) % this.workers.length;
+      perWorker[worker].push(block);
     }
 
     const batchId = ++this.lastBatchId;
@@ -165,19 +166,6 @@ export class BlockService implements OnDestroy {
     }
   }
 
-  private workerIndex(x: number, y: number): number {
-    // Two large primes spread neighbouring blocks over different workers, so a
-    // viewport of adjacent blocks does not pile onto one of them.
-    const hash = (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
-    return hash % this.workers.length;
-  }
-
-  /**
-   * Buffers a worker's share of a batch. Nothing is shown until every worker in that
-   * batch has replied, so all blocks of a tick appear in the same frame. Batches are
-   * committed strictly in dispatch order, so a slow worker on an earlier tick can
-   * never be overwritten by a faster later one and then land on top of it.
-   */
   private onWorkerResults(batchId: number, results: WorkerResult[]): void {
     const batch = this.pendingBatches.find((b) => b.id === batchId);
     if (!batch) return; // from a session that has since been torn down

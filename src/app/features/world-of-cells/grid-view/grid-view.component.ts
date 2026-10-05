@@ -60,7 +60,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private readonly panIdleMs = 150;
   /** How far ahead in time to cover. Roughly publish window plus round trip plus decode. */
   private readonly prefetchLookaheadS = 0.6;
-  private readonly maxPrefetchBlocks = 4;
+  private readonly maxPrefetchBlocks = 2;
 
   // Touch states (for mobile panning and zooming
   private isPinching = false;
