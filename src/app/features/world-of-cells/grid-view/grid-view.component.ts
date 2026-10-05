@@ -30,7 +30,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   protected blockSize: number = 500;
   private cellSize = 4;
-  private readonly minCellSize: number = 0.1
+  private readonly minCellSize: number = 0.25
   private readonly maxCellSize: number = 30;
   private readonly canvasWidth = window.screen.width;
   private readonly canvasHeight = window.innerHeight - 30;
@@ -61,13 +61,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   /** How far ahead in time to cover. Roughly publish window plus round trip plus decode. */
   private readonly prefetchLookaheadS = 0.6;
   private readonly maxPrefetchBlocks = 4;
-
-  /**
-   * How many halvings of zoom to let the canvas absorb before the worker pools
-   * cells. 0 averages every cell into exactly one screen pixel; higher leaves more of
-   * the combining to the draw and reads darker at far zoom.
-   */
-  private readonly poolStepsBehindZoom = 1;
 
   // Touch states (for mobile panning and zooming
   private isPinching = false;
@@ -182,8 +175,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.displayX.set(centerCellX);
     this.displayY.set(centerCellY);
 
-    this.blockService.setPoolFactor(this.poolFactorForZoom());
-
     const startBlockX = Math.floor(this.cellOffsetX / this.blockSize);
     const startBlockY = Math.floor(this.cellOffsetY / this.blockSize);
     const endBlockX = Math.floor((this.cellOffsetX + this.canvasWidth / this.cellSize) / this.blockSize);
@@ -293,21 +284,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const alpha = 0.3;
     this.panVelocityX += ((-movedX / dt) - this.panVelocityX) * alpha;
     this.panVelocityY += ((-movedY / dt) - this.panVelocityY) * alpha;
-  }
-
-  /**
-   * Cells per bitmap pixel, doubling each time the zoom halves below one cell per
-   * screen pixel, but held poolStepsBehindZoom steps behind. Bitmap pixels then stay
-   * smaller than screen pixels and the canvas's nearest-neighbour draw picks among
-   * them, which keeps contrast that a full average over the patch would wash out.
-   */
-  private poolFactorForZoom(): number {
-    // Work in device pixels: on a 2x display a cell at cellSize 0.5 still fills a
-    // whole physical pixel, so pooling would only throw away detail the screen has.
-    const devicePixelsPerCell = this.cellSize * Math.ceil(window.devicePixelRatio);
-    if (devicePixelsPerCell >= 1) return 1;
-    const steps = Math.ceil(Math.log2(1 / devicePixelsPerCell)) - this.poolStepsBehindZoom;
-    return Math.pow(2, Math.max(0, steps));
   }
 
   private prefetchLead(velocity: number): number {

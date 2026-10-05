@@ -7,17 +7,6 @@ import {Block} from '../../../requests/incoming/Block';
 // one worker, so the pool needs no coordination between workers.
 let blockSize: number;
 
-// Zoomed out past one screen pixel per cell, bitmaps are built at blockSize / poolFactor
-// with each pixel's darkness taken from the live count of its patch. That keeps sparse
-// life visible where nearest-neighbour sampling would drop it, and shrinks the bitmaps
-// exactly when there are most of them. Always a power of two.
-let poolFactor = 2;
-/**
- * Below 1 lifts sparse patches above their linear average so a lone glider still
- * reads at far zoom; 1 keeps overall darkness identical across pool steps.
- */
-const densityGamma = 0.6;
-
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 
@@ -46,20 +35,6 @@ async function handleMessage({type, batchId, payload}: any): Promise<void> {
 async function decodeBatch(type: string, payload: any, results: any[], bitmaps: ImageBitmap[]): Promise<void> {
   if (type === 'init') {
     blockSize = payload.blockSize;
-  }
-  if (payload.poolFactor !== undefined) {
-    poolFactor = payload.poolFactor;
-  }
-
-  if (type === 'rescale') {
-    // Rebuild every block we hold at the new pool size from the bits we already have.
-    for (const [key, data] of encodedBlocks) {
-      const [x, y] = key.split('/').map(Number);
-      const bitmap = await createImageBitmap(decodeByteArrayToImageData(data));
-      results.push({bitmap, x, y});
-      bitmaps.push(bitmap);
-    }
-    return;
   }
 
   const blockList: Block[] = payload.data;
@@ -154,9 +129,6 @@ function fillInnerBlockWithAlgo(packedBits: Uint8Array, previousEncodedBlock: Ui
 }
 
 function decodeByteArrayToImageData(packed: Uint8Array): ImageData {
-  if (poolFactor > 1) {
-    return decodePooledImageData(packed);
-  }
   const imageData = new ImageData(blockSize, blockSize);
   const pixels = imageData.data;
   for (let x = 0; x < blockSize; x++) {
@@ -167,44 +139,6 @@ function decodeByteArrayToImageData(packed: Uint8Array): ImageData {
       pixels[pixelIndex + 1] = color; // G
       pixels[pixelIndex + 2] = color; // B
       pixels[pixelIndex + 3] = 255;   // A
-    }
-  }
-  return imageData;
-}
-
-/**
- * One output pixel per poolFactor x poolFactor patch of cells, shaded by how many of
- * them are alive. Edge patches of a block that does not divide evenly are normalised
- * by their real cell count so the border is not artificially light.
- */
-function decodePooledImageData(packed: Uint8Array): ImageData {
-  const shift = Math.log2(poolFactor);
-  const size = Math.ceil(blockSize / poolFactor);
-  const counts = new Uint16Array(size * size);
-
-  for (let x = 0; x < blockSize; x++) {
-    const px = x >> shift;
-    for (let y = 0; y < blockSize; y++) {
-      if (getCellAt(x, y, packed)) counts[(y >> shift) * size + px]++;
-    }
-  }
-
-  // Patch sizes along each axis; only the last row/column can be partial.
-  const fullEdge = blockSize % poolFactor === 0 ? poolFactor : blockSize % poolFactor;
-  const imageData = new ImageData(size, size);
-  const pixels = imageData.data;
-
-  for (let py = 0; py < size; py++) {
-    const cellsY = py === size - 1 ? fullEdge : poolFactor;
-    for (let px = 0; px < size; px++) {
-      const cellsX = px === size - 1 ? fullEdge : poolFactor;
-      const density = counts[py * size + px] / (cellsX * cellsY);
-      const color = Math.round(255 * (1 - Math.pow(density, densityGamma)));
-      const i = (py * size + px) * 4;
-      pixels[i] = color;
-      pixels[i + 1] = color;
-      pixels[i + 2] = color;
-      pixels[i + 3] = 255;
     }
   }
   return imageData;
