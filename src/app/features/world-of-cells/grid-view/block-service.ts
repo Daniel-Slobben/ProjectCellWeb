@@ -137,7 +137,7 @@ export class BlockService implements OnDestroy {
       })
       const blocksToDelete: string[] = [];
       this.blockTimeoutMap.forEach((value, key) => {
-        if (value > 2) {
+        if (value > 4) {
           blocksToDelete.push(key);
           this.blockTimeoutMap.delete(key);
           this.blockData.get(key)?.close();
