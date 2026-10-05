@@ -50,6 +50,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private dragStartX = 0;
   private dragStartY = 0;
 
+  /**
+   * How many halvings of zoom to let the canvas absorb before the worker pools
+   * cells. 0 averages every cell into exactly one screen pixel; higher leaves more of
+   * the combining to the draw and reads darker at far zoom.
+   */
   private readonly poolStepsBehindZoom = 1;
 
   // Touch states (for mobile panning and zooming
@@ -115,7 +120,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     if (this.reconnectInFlight) return;
     this.reconnectInFlight = true;
 
-    const reconnectRequest = new ReconnectRequest(Array.from(this.blockService.activeBlocks.keys()));
+    const reconnectRequest = new ReconnectRequest(Array.from(this.blockService.activeBlocks));
     this.httpClient.post<ReconnectResponse>("/gen-api/reconnect", reconnectRequest).subscribe({
       next: (reconnectResponse) => {
         this.blockService.setup(this.blockSize, reconnectResponse.clientId, []);
@@ -173,11 +178,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const endBlockY = Math.floor((this.cellOffsetY + this.canvasHeight / this.cellSize) / this.blockSize);
     const currentVisibleBlocks = new Set<string>();
 
-    const ringAdjuster = 4;
-    const subStartX = startBlockX - ringAdjuster;
-    const subEndX = endBlockX + ringAdjuster;
-    const subStartY = startBlockY - ringAdjuster;
-    const subEndY = endBlockY + ringAdjuster;
+    // One block ring on every side for jitter and zoom-out.
+    const subStartX = startBlockX - 1;
+    const subEndX = endBlockX + 1;
+    const subStartY = startBlockY - 1;
+    const subEndY = endBlockY + 1;
 
     for (let blockX = subStartX; blockX <= subEndX; blockX++) {
       for (let blockY = subStartY; blockY <= subEndY; blockY++) {
@@ -262,7 +267,15 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.cellOffsetY -= dy / this.cellSize;
   }
 
+  /**
+   * Cells per bitmap pixel, doubling each time the zoom halves below one cell per
+   * screen pixel, but held poolStepsBehindZoom steps behind. Bitmap pixels then stay
+   * smaller than screen pixels and the canvas's nearest-neighbour draw picks among
+   * them, which keeps contrast that a full average over the patch would wash out.
+   */
   private poolFactorForZoom(): number {
+    // Work in device pixels: on a 2x display a cell at cellSize 0.5 still fills a
+    // whole physical pixel, so pooling would only throw away detail the screen has.
     const devicePixelsPerCell = this.cellSize * Math.ceil(window.devicePixelRatio);
     if (devicePixelsPerCell >= 1) return 1;
     const steps = Math.ceil(Math.log2(1 / devicePixelsPerCell)) - this.poolStepsBehindZoom;
@@ -387,5 +400,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   protected toggleBlockBorders() {
     this.drawBorders = !this.drawBorders;
   }
+
 }
 
