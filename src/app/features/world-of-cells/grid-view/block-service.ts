@@ -12,14 +12,6 @@ interface WorkerResult {
   y: number;
 }
 
-/** An inclusive rectangle of block coordinates. */
-export interface BlockBounds {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-}
-
 interface PendingBatch {
   id: number;
   /** Workers that still owe a reply for this batch. */
@@ -34,13 +26,7 @@ export class BlockService implements OnDestroy {
   private generation = 0;
 
   public activeBlocks = new Set<string>();
-  /**
-   * The subscription is always one rectangle, so the backend is told its two corners
-   * and works out which keys to add and drop itself. The message stays the same size
-   * however many blocks the rectangle holds.
-   */
-  private activeBounds: BlockBounds | undefined;
-  private publishedBounds: BlockBounds | undefined;
+  private publishedBlocks = new Set<string>();
 
   private noEditKey: string | undefined;
   /**
@@ -62,7 +48,7 @@ export class BlockService implements OnDestroy {
   private readonly subscriptionFull?: Subscription;
   private subscription?: Subscription;
 
-  private readonly publishWindowMs = 250;
+  private readonly publishWindowMs = 150;
   private publishTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly healthCheckIntervalMs = 8000;
@@ -252,17 +238,14 @@ export class BlockService implements OnDestroy {
     if (this.resendTimer !== null) return;
     this.resendTimer = setTimeout(() => {
       this.resendTimer = null;
-      const bounds = this.publishedBounds;
-      if (!bounds) return; // nothing subscribed yet, so nothing to resend
       this.stompClient.publish({
         destination: '/block-request',
-        body: JSON.stringify(this.toRequest(bounds)),
+        body: JSON.stringify(new ClientUpdateRequest(this.clientId, [], [])),
       });
     }, 0);
   }
 
-  /** visibleKeys must be exactly the keys inside bounds. */
-  updateVisible(visibleKeys: Set<string>, bounds: BlockBounds): void {
+  updateVisible(visibleKeys: Set<string>): void {
     for (const [key, bitmap] of this.blockData) {
       if (!visibleKeys.has(key)) {
         bitmap?.close();
@@ -271,7 +254,6 @@ export class BlockService implements OnDestroy {
     }
 
     this.activeBlocks = new Set(visibleKeys);
-    this.activeBounds = bounds;
     this.schedulePublish();
   }
 
@@ -285,7 +267,7 @@ export class BlockService implements OnDestroy {
     if (this.publishTimer !== null) return;
     if (!this.hasDrift()) return;
 
-    this.publishBounds();
+    this.publishDelta();
 
     this.publishTimer = setTimeout(() => {
       this.publishTimer = null;
@@ -294,31 +276,31 @@ export class BlockService implements OnDestroy {
   }
 
   private hasDrift(): boolean {
-    const active = this.activeBounds;
-    const published = this.publishedBounds;
-    if (!active) return false;
-    if (!published) return true;
-    return active.minX !== published.minX || active.minY !== published.minY
-      || active.maxX !== published.maxX || active.maxY !== published.maxY;
+    if (this.activeBlocks.size !== this.publishedBlocks.size) return true;
+    for (const key of this.activeBlocks) {
+      if (!this.publishedBlocks.has(key)) return true;
+    }
+    return false;
   }
 
-  private publishBounds(): void {
-    const bounds = this.activeBounds;
-    if (!bounds) return;
+  private publishDelta(): void {
+    const toRemove: string[] = [];
+    for (const key of this.publishedBlocks) {
+      if (!this.activeBlocks.has(key)) toRemove.push(key);
+    }
+
+    const toAdd: string[] = [];
+    for (const key of this.activeBlocks) {
+      if (!this.publishedBlocks.has(key)) toAdd.push(key);
+    }
+
+    if (toRemove.length === 0 && toAdd.length === 0) return;
 
     this.stompClient.publish({
       destination: '/client-update',
-      body: JSON.stringify(this.toRequest(bounds)),
+      body: JSON.stringify(new ClientUpdateRequest(this.clientId, toRemove, toAdd)),
     });
-    this.publishedBounds = bounds;
-  }
-
-  private toRequest(bounds: BlockBounds): ClientUpdateRequest {
-    return new ClientUpdateRequest(
-      this.clientId,
-      getKey(bounds.minX, bounds.minY),
-      getKey(bounds.maxX, bounds.maxY),
-    );
+    this.publishedBlocks = new Set(this.activeBlocks);
   }
 
   getBlock(key: string): ImageBitmap | undefined {
@@ -351,8 +333,7 @@ export class BlockService implements OnDestroy {
     this.pendingBatches = [];
 
     this.blockData.clear();
-    this.activeBounds = undefined;
-    this.publishedBounds = undefined;
+    this.publishedBlocks.clear();
     this.noEditKey = undefined;
     this.generation++;
   }
