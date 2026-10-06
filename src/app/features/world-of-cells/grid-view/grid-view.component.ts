@@ -30,7 +30,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   protected blockSize: number = 500;
   private cellSize = 4;
-  private readonly minCellSize: number = 0.25
+  private readonly minCellSize: number = 0.1
   private readonly maxCellSize: number = 30;
   private readonly canvasWidth = window.screen.width;
   private readonly canvasHeight = window.innerHeight - 30;
@@ -167,9 +167,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
 
     const poolFactorForZoom = this.poolFactorForZoom();
-    if (poolFactorForZoom > 1) {
-      this.ctx.imageSmoothingEnabled = true;
-    }
     this.blockService.setPoolFactor(poolFactorForZoom);
 
     this.drawnGeneration = this.blockService.getGeneration();
@@ -243,7 +240,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     if (this.cellSize >= 0.5) {
       return 1;
     }
-    const steps = Math.log2(1 / this.cellSize);
+    const steps = Math.floor(Math.log2(1 / this.cellSize));
     return Math.pow(2, Math.max(0, steps));
   }
 

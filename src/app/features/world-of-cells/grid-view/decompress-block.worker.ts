@@ -5,7 +5,7 @@ import {Block} from '../../../requests/incoming/Block';
 let blockSize: number;
 
 let poolFactor = 1;
-const densityGamma = 0.6;
+const densityGamma = 0.65;
 
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
@@ -29,6 +29,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     blockSize = payload.blockSize;
   }
   if (payload.poolFactor !== undefined) {
+    console.log('poolfactor set');
     poolFactor = payload.poolFactor;
   }
 
@@ -138,6 +139,7 @@ function decodePooledImageData(packed: Uint8Array): ImageData {
   const imageData = new ImageData(size, size);
   const pixels = imageData.data;
 
+  // counts is row-major like the pixels: counts[py * size + px].
   for (let py = 0; py < size; py++) {
     const cellsY = py === size - 1 ? fullEdge : poolFactor;
     for (let px = 0; px < size; px++) {

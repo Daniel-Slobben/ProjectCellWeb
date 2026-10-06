@@ -134,9 +134,7 @@ export class BlockService implements OnDestroy {
   setPoolFactor(factor: number): void {
     if (factor === this.poolFactor) return;
     this.poolFactor = factor;
-    if (this.workers.length > 0) {
-      this.dispatchToWorkers('rescale', []);
-    }
+    this.dispatchToWorkers('rescale', []);
   }
 
   private dispatchToWorkers(type: 'init' | 'payload' | 'rescale', blocks: Block[]): void {
@@ -153,7 +151,7 @@ export class BlockService implements OnDestroy {
     perWorker.forEach((data, i) => {
       if (type === 'payload' && data.length === 0) return;
       batch.pending++;
-      this.workers[i].postMessage({type, batchId, payload: {blockSize: this.blockSize, data}});
+      this.workers[i].postMessage({type, batchId, payload: {blockSize: this.blockSize, poolFactor: this.poolFactor, data}});
     });
 
     if (batch.pending > 0) {
