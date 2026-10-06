@@ -2,25 +2,15 @@ import { decompressBlock } from 'lz4js';
 import { getKey } from './utils.component';
 import {Block} from '../../../requests/incoming/Block';
 
-// One instance of this worker owns a fixed subset of block keys, chosen by the
-// BlockService's routing hash. A block's FULL baseline and generation live in exactly
-// one worker, so the pool needs no coordination between workers.
 let blockSize: number;
 
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 
-// Messages are handled strictly one after the other. An async onmessage on its own
-// would let a second batch start while the first awaits createImageBitmap, so a delta
-// could run before the FULL it builds on has been stored.
-let queue: Promise<void> = Promise.resolve();
-
 globalThis.onmessage = function (e: any) {
-  queue = queue.then(() => handleMessage(e.data));
+  handleMessage(e.data);
 };
 
-// Every batch gets exactly one reply, even an empty or failed one, because the main
-// thread holds the whole tick back until all workers in the batch have answered.
 async function handleMessage({type, batchId, payload}: any): Promise<void> {
   const results: any[] = [];
   const bitmaps: ImageBitmap[] = [];
@@ -29,7 +19,7 @@ async function handleMessage({type, batchId, payload}: any): Promise<void> {
   } catch (err) {
     console.error(err);
   }
-  self.postMessage({batchId, results}, {transfer: bitmaps});
+  self.postMessage({batchId, results});
 }
 
 async function decodeBatch(type: string, payload: any, results: any[], bitmaps: ImageBitmap[]): Promise<void> {

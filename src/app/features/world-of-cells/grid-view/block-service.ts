@@ -29,19 +29,10 @@ export class BlockService implements OnDestroy {
   private publishedBlocks = new Set<string>();
 
   private noEditKey: string | undefined;
-  /**
-   * Decompression and the Life step run in a pool of workers, one per spare core.
-   * A block is always routed to the same worker (see workerIndex), so each worker
-   * holds the FULL baseline for its own keys and per-key ordering stays strict
-   * without any coordination between workers.
-   */
   private workers: Worker[] = [];
   private readonly maxWorkers = 8;
-  /** Batches dispatched but not yet fully answered, oldest first. */
   private pendingBatches: PendingBatch[] = [];
   private lastBatchId = 0;
-  /** Several workers can hit a resend error in one tick; ask the backend only once. */
-  private resendTimer: ReturnType<typeof setTimeout> | null = null;
   private blockSize = 0;
   public clientId = '';
   private readonly subscriptionFull?: Subscription;
@@ -139,15 +130,10 @@ export class BlockService implements OnDestroy {
     this.dispatchToWorkers('init', blocks);
   }
 
-  /**
-   * Splits a batch by owning worker and posts each worker only its own blocks.
-   * The batch is tracked so its results can be committed as one tick once every
-   * worker involved has replied; see onWorkerResults.
-   */
   private dispatchToWorkers(type: 'init' | 'payload', blocks: Block[]): void {
     const perWorker: Block[][] = this.workers.map(() => []);
     for (const block of blocks) {
-      let worker = Math.abs(block.x + block.y) % this.workers.length;
+      let worker = Math.abs(block.x * block.y) % this.workers.length;
       perWorker[worker].push(block);
     }
 
@@ -181,39 +167,28 @@ export class BlockService implements OnDestroy {
   private commitBatch(results: WorkerResult[]): void {
     this.generation++;
 
-    let hasError = false;
+    const errorBlock: string[] = [];
 
     for (const {bitmap, error, x, y} of results) {
       const key = getKey(x, y);
 
       if (error) {
-        hasError = true;
+        errorBlock.push(key);
         continue;
       }
 
       if (this.noEditKey !== key) {
-        // Release the texture we are replacing now instead of waiting for GC; a tick
-        // at far zoom swaps hundreds of them.
-        this.blockData.get(key)?.close();
         this.blockData.set(key, bitmap);
       } else {
         bitmap?.close();
       }
     }
-    if (hasError) {
-      this.scheduleFullResend();
-    }
-  }
-
-  private scheduleFullResend(): void {
-    if (this.resendTimer !== null) return;
-    this.resendTimer = setTimeout(() => {
-      this.resendTimer = null;
+    if (errorBlock.length > 0) {
       this.stompClient.publish({
-        destination: '/block-request',
-        body: JSON.stringify(new ClientUpdateRequest(this.clientId, [], [])),
+        destination: '/client-update',
+        body: JSON.stringify(new ClientUpdateRequest(this.clientId, [], errorBlock)),
       });
-    }, 0);
+    }
   }
 
   updateVisible(visibleKeys: Set<string>): void {
@@ -228,12 +203,6 @@ export class BlockService implements OnDestroy {
     this.schedulePublish();
   }
 
-  /**
-   * Leading-edge coalescing: the first change goes out immediately, then further
-   * changes inside the window are batched into one trailing publish. A pan's first
-   * new block no longer waits the whole window, while continuous panning still
-   * sends at most one message per window.
-   */
   private schedulePublish(): void {
     if (this.publishTimer !== null) return;
     if (!this.hasDrift()) return;
@@ -290,10 +259,6 @@ export class BlockService implements OnDestroy {
     this.subscription?.unsubscribe();
     this.subscription = undefined;
 
-    if (this.resendTimer !== null) {
-      clearTimeout(this.resendTimer);
-      this.resendTimer = null;
-    }
     for (const worker of this.workers) {
       worker.terminate();
     }
