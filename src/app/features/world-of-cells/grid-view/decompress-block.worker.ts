@@ -13,16 +13,15 @@ globalThis.onmessage = function (e: any) {
 
 async function handleMessage({type, batchId, payload}: any): Promise<void> {
   const results: any[] = [];
-  const bitmaps: ImageBitmap[] = [];
   try {
-    await decodeBatch(type, payload, results, bitmaps);
+    await decodeBatch(type, payload, results);
   } catch (err) {
     console.error(err);
   }
   self.postMessage({batchId, results});
 }
 
-async function decodeBatch(type: string, payload: any, results: any[], bitmaps: ImageBitmap[]): Promise<void> {
+async function decodeBatch(type: string, payload: any, results: any[]): Promise<void> {
   if (type === 'init') {
     blockSize = payload.blockSize;
   }
@@ -38,7 +37,6 @@ async function decodeBatch(type: string, payload: any, results: any[], bitmaps: 
       const bitmap = await createImageBitmap(image);
 
       results.push({bitmap, x: block.x, y: block.y});
-      bitmaps.push(bitmap);
 
       encodedBlocks.set(key, data);
       blockGenerationMap.set(key, block.generation);
@@ -60,7 +58,6 @@ async function decodeBatch(type: string, payload: any, results: any[], bitmaps: 
         const bitmap = await createImageBitmap(image);
 
         results.push({bitmap, x: block.x, y: block.y});
-        bitmaps.push(bitmap);
         blockGenerationMap.set(key, block.generation);
         encodedBlocks.set(key, data);
       } catch (e) {

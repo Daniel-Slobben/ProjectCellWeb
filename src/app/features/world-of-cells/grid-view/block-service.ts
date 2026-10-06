@@ -133,7 +133,7 @@ export class BlockService implements OnDestroy {
   private dispatchToWorkers(type: 'init' | 'payload', blocks: Block[]): void {
     const perWorker: Block[][] = this.workers.map(() => []);
     for (const block of blocks) {
-      let worker = Math.abs(block.x * block.y) % this.workers.length;
+      let worker = Math.abs(block.x * 1000003 + block.y) % this.workers.length;
       perWorker[worker].push(block);
     }
 
