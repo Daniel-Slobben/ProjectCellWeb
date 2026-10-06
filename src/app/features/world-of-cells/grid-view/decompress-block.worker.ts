@@ -5,13 +5,16 @@ import {Block} from '../../../requests/incoming/Block';
 let blockSize: number;
 
 let poolFactor = 1;
-const densityGamma = 0.65;
+const densityGamma = 0.8;
 
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 
+// One message at a time, otherwise the next batch starts while this one awaits createImageBitmap.
+let queue = Promise.resolve();
+
 globalThis.onmessage = function (e: any) {
-  handleMessage(e.data);
+  queue = queue.then(() => handleMessage(e.data));
 };
 
 async function handleMessage({type, batchId, payload}: any): Promise<void> {
@@ -33,6 +36,14 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     poolFactor = payload.poolFactor;
   }
 
+  if (type === 'rescale') {
+    for (const [key, data] of encodedBlocks) {
+      const [x, y] = key.split('/').map(Number);
+      const bitmap = await createImageBitmap(decodeByteArrayToImageData(data));
+      results.push({bitmap, x, y});
+    }
+    return;
+  }
   const blockList: Block[] = payload.data;
 
   for (const block of blockList) {
