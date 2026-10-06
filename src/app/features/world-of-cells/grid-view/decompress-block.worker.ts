@@ -4,6 +4,9 @@ import {Block} from '../../../requests/incoming/Block';
 
 let blockSize: number;
 
+let poolFactor = 1;
+const densityGamma = 0.6;
+
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 
@@ -24,6 +27,9 @@ async function handleMessage({type, batchId, payload}: any): Promise<void> {
 async function decodeBatch(type: string, payload: any, results: any[]): Promise<void> {
   if (type === 'init') {
     blockSize = payload.blockSize;
+  }
+  if (payload.poolFactor !== undefined) {
+    poolFactor = payload.poolFactor;
   }
 
   const blockList: Block[] = payload.data;
@@ -115,7 +121,43 @@ function fillInnerBlockWithAlgo(packedBits: Uint8Array, previousEncodedBlock: Ui
   }
 }
 
+function decodePooledImageData(packed: Uint8Array): ImageData {
+  const shift = Math.log2(poolFactor);
+  const size = Math.ceil(blockSize / poolFactor);
+  const counts = new Uint16Array(size * size);
+
+  for (let x = 0; x < blockSize; x++) {
+    const px = x >> shift;
+    for (let y = 0; y < blockSize; y++) {
+      if (getCellAt(x, y, packed)) counts[(y >> shift) * size + px]++;
+    }
+  }
+
+  // Patch sizes along each axis; only the last row/column can be partial.
+  const fullEdge = blockSize % poolFactor === 0 ? poolFactor : blockSize % poolFactor;
+  const imageData = new ImageData(size, size);
+  const pixels = imageData.data;
+
+  for (let py = 0; py < size; py++) {
+    const cellsY = py === size - 1 ? fullEdge : poolFactor;
+    for (let px = 0; px < size; px++) {
+      const cellsX = px === size - 1 ? fullEdge : poolFactor;
+      const density = counts[py * size + px] / (cellsX * cellsY);
+      const color = Math.round(255 * (1 - Math.pow(density, densityGamma)));
+      const i = (py * size + px) * 4;
+      pixels[i] = color;
+      pixels[i + 1] = color;
+      pixels[i + 2] = color;
+      pixels[i + 3] = 255;
+    }
+  }
+  return imageData;
+}
+
 function decodeByteArrayToImageData(packed: Uint8Array): ImageData {
+  if (poolFactor > 1) {
+    return decodePooledImageData(packed);
+  }
   const imageData = new ImageData(blockSize, blockSize);
   const pixels = imageData.data;
   for (let x = 0; x < blockSize; x++) {

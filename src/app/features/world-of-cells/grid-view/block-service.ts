@@ -33,6 +33,7 @@ export class BlockService implements OnDestroy {
   private readonly maxWorkers = 8;
   private pendingBatches: PendingBatch[] = [];
   private lastBatchId = 0;
+  private poolFactor = 1;
   private blockSize = 0;
   public clientId = '';
   private readonly subscriptionFull?: Subscription;
@@ -130,7 +131,15 @@ export class BlockService implements OnDestroy {
     this.dispatchToWorkers('init', blocks);
   }
 
-  private dispatchToWorkers(type: 'init' | 'payload', blocks: Block[]): void {
+  setPoolFactor(factor: number): void {
+    if (factor === this.poolFactor) return;
+    this.poolFactor = factor;
+    if (this.workers.length > 0) {
+      this.dispatchToWorkers('rescale', []);
+    }
+  }
+
+  private dispatchToWorkers(type: 'init' | 'payload' | 'rescale', blocks: Block[]): void {
     const perWorker: Block[][] = this.workers.map(() => []);
     for (const block of blocks) {
       let worker = Math.abs(block.x * 1000003 + block.y) % this.workers.length;
@@ -140,8 +149,8 @@ export class BlockService implements OnDestroy {
     const batchId = ++this.lastBatchId;
     const batch: PendingBatch = {id: batchId, pending: 0, results: []};
 
+    // init and rescale must hit
     perWorker.forEach((data, i) => {
-      // init must reach every worker so it learns blockSize, even with nothing to decode.
       if (type === 'payload' && data.length === 0) return;
       batch.pending++;
       this.workers[i].postMessage({type, batchId, payload: {blockSize: this.blockSize, data}});

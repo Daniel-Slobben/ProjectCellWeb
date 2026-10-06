@@ -165,6 +165,13 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       return;
     }
     this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
+
+    const poolFactorForZoom = this.poolFactorForZoom();
+    if (poolFactorForZoom > 1) {
+      this.ctx.imageSmoothingEnabled = true;
+    }
+    this.blockService.setPoolFactor(poolFactorForZoom);
+
     this.drawnGeneration = this.blockService.getGeneration();
     this.drawnCellOffsetX = this.cellOffsetX;
     this.drawnCellOffsetY = this.cellOffsetY;
@@ -231,6 +238,14 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
       this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
     }
+  }
+
+  private poolFactorForZoom(): number {
+    if (this.cellSize >= 0.5) {
+      return 1;
+    }
+    const steps = Math.log2(1 / this.cellSize);
+    return Math.pow(2, Math.max(0, steps));
   }
 
   private readonly onClick = (e: MouseEvent) => {
