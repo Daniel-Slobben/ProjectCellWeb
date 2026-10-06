@@ -36,8 +36,9 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
   }
 
   if (type === 'rescale') {
-    for (const [key, data] of encodedBlocks) {
-      const [x, y] = key.split('/').map(Number);
+    for (const {x, y} of payload.data) {
+      const data = encodedBlocks.get(getKey(x, y));
+      if (!data) continue;
       const bitmap = await createImageBitmap(decodeByteArrayToImageData(data));
       results.push({bitmap, x, y});
     }

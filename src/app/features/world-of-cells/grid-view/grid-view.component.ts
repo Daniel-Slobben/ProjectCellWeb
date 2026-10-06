@@ -155,9 +155,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }
     this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
 
-    const poolFactorForZoom = this.poolFactorForZoom();
-    this.blockService.setPoolFactor(poolFactorForZoom);
-
     this.drawnGeneration = this.blockService.getGeneration();
     this.drawnCellOffsetX = this.cellOffsetX;
     this.drawnCellOffsetY = this.cellOffsetY;
@@ -173,6 +170,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const endBlockX = Math.floor((this.cellOffsetX + this.canvasWidth / this.cellSize) / this.blockSize);
     const endBlockY = Math.floor((this.cellOffsetY + this.canvasHeight / this.cellSize) / this.blockSize);
     const currentVisibleBlocks = new Set<string>();
+    const drawnBlocks: {x: number, y: number}[] = [];
 
     // One ring of blocks around the visible area, so small pans and zooms find them loaded.
     for (let blockX = startBlockX - 1; blockX <= endBlockX + 1; blockX++) {
@@ -181,10 +179,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
           this.drawBlockWithImageData(blockX, blockY);
+          drawnBlocks.push({x: blockX, y: blockY});
         }
       }
     }
     this.blockService.updateVisible(currentVisibleBlocks);
+    this.blockService.setPoolFactor(this.poolFactorForZoom(), drawnBlocks);
 
     if (this.selectedBlock != undefined) {
       const offscreen = document.createElement('canvas');

@@ -131,14 +131,15 @@ export class BlockService implements OnDestroy {
     this.dispatchToWorkers('init', blocks);
   }
 
-  setPoolFactor(factor: number): void {
+  setPoolFactor(factor: number, visible: Pick<Block, 'x' | 'y'>[]): void {
     if (factor === this.poolFactor) return;
     this.poolFactor = factor;
-    this.dispatchToWorkers('rescale', []);
+    // Only blocks we hold a current bitmap for; one coming back into view waits for its FULL.
+    this.dispatchToWorkers('rescale', visible.filter(({x, y}) => this.blockData.has(getKey(x, y))));
   }
 
-  private dispatchToWorkers(type: 'init' | 'payload' | 'rescale', blocks: Block[]): void {
-    const perWorker: Block[][] = this.workers.map(() => []);
+  private dispatchToWorkers(type: 'init' | 'payload' | 'rescale', blocks: Pick<Block, 'x' | 'y'>[]): void {
+    const perWorker: Pick<Block, 'x' | 'y'>[][] = this.workers.map(() => []);
     for (const block of blocks) {
       let worker = Math.abs(block.x * 1000003 + block.y) % this.workers.length;
       perWorker[worker].push(block);
