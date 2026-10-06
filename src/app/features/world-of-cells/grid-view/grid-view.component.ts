@@ -188,14 +188,13 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const endBlockY = Math.floor((this.cellOffsetY + this.canvasHeight / this.cellSize) / this.blockSize);
     const currentVisibleBlocks = new Set<string>();
 
-    // One block ring on every side for jitter and zoom-out, plus a lead on the side
-    // we are panning towards.
     const leadX = this.prefetchLead(this.panVelocityX);
     const leadY = this.prefetchLead(this.panVelocityY);
-    const subStartX = startBlockX - 1 + Math.min(0, leadX);
-    const subEndX = endBlockX + 1 + Math.max(0, leadX);
-    const subStartY = startBlockY - 1 + Math.min(0, leadY);
-    const subEndY = endBlockY + 1 + Math.max(0, leadY);
+
+    const subStartX = startBlockX + Math.min(0, leadX);
+    const subEndX = endBlockX + Math.max(0, leadX);
+    const subStartY = startBlockY + Math.min(0, leadY);
+    const subEndY = endBlockY + Math.max(0, leadY);
 
     for (let blockX = subStartX; blockX <= subEndX; blockX++) {
       for (let blockY = subStartY; blockY <= subEndY; blockY++) {
