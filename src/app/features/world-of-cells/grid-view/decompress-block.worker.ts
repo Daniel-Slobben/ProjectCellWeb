@@ -18,7 +18,7 @@ async function handleMessage({type, batchId, payload}: any): Promise<void> {
   } catch (err) {
     console.error(err);
   }
-  self.postMessage({batchId, results});
+  self.postMessage({batchId, results}, {transfer: results.flatMap((r) => r.bitmap ? [r.bitmap] : [])});
 }
 
 async function decodeBatch(type: string, payload: any, results: any[]): Promise<void> {
