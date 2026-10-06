@@ -31,7 +31,6 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     blockSize = payload.blockSize;
   }
   if (payload.poolFactor !== undefined) {
-    console.log('poolfactor set');
     poolFactor = payload.poolFactor;
   }
 
