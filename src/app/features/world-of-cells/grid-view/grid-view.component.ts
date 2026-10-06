@@ -51,17 +51,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private dragStartX = 0;
   private dragStartY = 0;
 
-  // Directional prefetch: subscribe to where the viewport will be shortly, so a pan
-  // finds blocks already loaded instead of holes. Sized from pan speed, not a fixed count.
-  private panVelocityX = 0; // world cells per second, positive when revealing +x
-  private panVelocityY = 0;
-  private lastPanTime = 0;
-  /** No pan events for this long means we stopped; the lead collapses to zero. */
-  private readonly panIdleMs = 150;
-  /** How far ahead in time to cover. Roughly publish window plus round trip plus decode. */
-  private readonly prefetchLookaheadS = 0.6;
-  private readonly maxPrefetchBlocks = 2;
-
   // Touch states (for mobile panning and zooming
   private isPinching = false;
   private lastTouchDistance = 0;
@@ -185,16 +174,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const endBlockY = Math.floor((this.cellOffsetY + this.canvasHeight / this.cellSize) / this.blockSize);
     const currentVisibleBlocks = new Set<string>();
 
-    const leadX = this.prefetchLead(this.panVelocityX);
-    const leadY = this.prefetchLead(this.panVelocityY);
-
-    const subStartX = startBlockX + Math.min(0, leadX);
-    const subEndX = endBlockX + Math.max(0, leadX);
-    const subStartY = startBlockY + Math.min(0, leadY);
-    const subEndY = endBlockY + Math.max(0, leadY);
-
-    for (let blockX = subStartX; blockX <= subEndX; blockX++) {
-      for (let blockY = subStartY; blockY <= subEndY; blockY++) {
+    // One ring of blocks around the visible area, so small pans and zooms find them loaded.
+    for (let blockX = startBlockX - 1; blockX <= endBlockX + 1; blockX++) {
+      for (let blockY = startBlockY - 1; blockY <= endBlockY + 1; blockY++) {
         const key = getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
@@ -273,38 +255,13 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.dragStartX = e.clientX;
     this.dragStartY = e.clientY;
 
-    this.panByPixels(dx, dy);
-  };
-
-  /**
-   * Applies a drag in screen pixels and updates the pan velocity estimate that the
-   * directional prefetch reads. Velocity is in world cells per second, so the same
-   * finger speed yields a longer lead the further out you are zoomed.
-   */
-  private panByPixels(dx: number, dy: number): void {
+    // Convert pixel movement to cell movement
     const movedX = dx / this.cellSize;
     const movedY = dy / this.cellSize;
 
     this.cellOffsetX -= movedX;
     this.cellOffsetY -= movedY;
-
-    const now = performance.now();
-    const dt = (now - this.lastPanTime) / 1000;
-    this.lastPanTime = now;
-    if (dt <= 0 || dt > 0.25) return; // first move after a pause carries no usable speed
-
-    // Exponential smoothing so one jittery mouse event cannot flip the lead direction.
-    const alpha = 0.3;
-    this.panVelocityX += ((-movedX / dt) - this.panVelocityX) * alpha;
-    this.panVelocityY += ((-movedY / dt) - this.panVelocityY) * alpha;
-  }
-
-  private prefetchLead(velocity: number): number {
-    if (performance.now() - this.lastPanTime > this.panIdleMs) return 0;
-    const cellsAhead = velocity * this.prefetchLookaheadS;
-    const blocks = Math.trunc(cellsAhead / this.blockSize);
-    return Math.max(-this.maxPrefetchBlocks, Math.min(this.maxPrefetchBlocks, blocks));
-  }
+  };
 
   private readonly onWheel = (e: WheelEvent) => {
     e.preventDefault();
@@ -380,7 +337,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.dragStartX = touch.clientX;
       this.dragStartY = touch.clientY;
 
-      this.panByPixels(dx, dy);
+      const movedX = dx / this.cellSize;
+      const movedY = dy / this.cellSize;
+      this.cellOffsetX -= movedX;
+      this.cellOffsetY -= movedY;
     }
   };
 
