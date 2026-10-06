@@ -173,8 +173,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const drawnBlocks: {x: number, y: number}[] = [];
 
     // One ring of blocks around the visible area, so small pans and zooms find them loaded.
-    for (let blockX = startBlockX - 1; blockX <= endBlockX + 1; blockX++) {
-      for (let blockY = startBlockY - 1; blockY <= endBlockY + 1; blockY++) {
+    for (let blockX = startBlockX; blockX <= endBlockX; blockX++) {
+      for (let blockY = startBlockY; blockY <= endBlockY; blockY++) {
         const key = getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
