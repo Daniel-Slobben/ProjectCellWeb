@@ -155,6 +155,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }
     this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
 
+    const requestBottomX = this.cellOffsetX > this.drawnCellOffsetX ? 1 : 0;
+    const requestTopX = this.cellOffsetX < this.drawnCellOffsetX ? 1 : 0;
+    const requestBottomY = this.cellOffsetY > this.drawnCellOffsetY ? 1 : 0;
+    const requestTopY = this.cellOffsetY < this.drawnCellOffsetY ? 1 : 0;
+
     this.drawnGeneration = this.blockService.getGeneration();
     this.drawnCellOffsetX = this.cellOffsetX;
     this.drawnCellOffsetY = this.cellOffsetY;
@@ -169,12 +174,13 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const startBlockY = Math.floor(this.cellOffsetY / this.blockSize);
     const endBlockX = Math.floor((this.cellOffsetX + this.canvasWidth / this.cellSize) / this.blockSize);
     const endBlockY = Math.floor((this.cellOffsetY + this.canvasHeight / this.cellSize) / this.blockSize);
+
     const currentVisibleBlocks = new Set<string>();
     const drawnBlocks: {x: number, y: number}[] = [];
 
     // One ring of blocks around the visible area, so small pans and zooms find them loaded.
-    for (let blockX = startBlockX; blockX <= endBlockX; blockX++) {
-      for (let blockY = startBlockY; blockY <= endBlockY; blockY++) {
+    for (let blockX = startBlockX - requestBottomX; blockX <= endBlockX + requestTopX; blockX++) {
+      for (let blockY = startBlockY - requestBottomY; blockY <= endBlockY + requestBottomY; blockY++) {
         const key = getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
