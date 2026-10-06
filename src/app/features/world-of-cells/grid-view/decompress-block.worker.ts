@@ -10,7 +10,6 @@ const densityGamma = 0.8;
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 
-// One message at a time, otherwise the next batch starts while this one awaits createImageBitmap.
 let queue = Promise.resolve();
 
 globalThis.onmessage = function (e: any) {

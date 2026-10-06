@@ -237,7 +237,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private poolFactorForZoom(): number {
-    if (this.cellSize >= 0.5) {
+    if (this.cellSize >= 0.4) {
       return 1;
     }
     const steps = Math.floor(Math.log2(1 / this.cellSize));
