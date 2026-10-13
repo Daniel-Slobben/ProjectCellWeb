@@ -186,6 +186,8 @@ export class BlockService implements OnDestroy {
       }
 
       if (this.noEditKey !== key) {
+        // Free the replaced bitmap now rather than leaving up to 16 MB per block to the GC.
+        this.blockData.get(key)?.close();
         this.blockData.set(key, bitmap);
       } else {
         bitmap?.close();
@@ -276,6 +278,7 @@ export class BlockService implements OnDestroy {
     }
     this.pendingBatches = [];
 
+    for (const bitmap of this.blockData.values()) bitmap?.close();
     this.blockData.clear();
     this.publishedBlocks.clear();
     this.noEditKey = undefined;
