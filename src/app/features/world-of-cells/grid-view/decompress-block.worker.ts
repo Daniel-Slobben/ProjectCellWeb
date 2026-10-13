@@ -10,6 +10,58 @@ const densityGamma = 0.8;
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 
+interface WorkerResult {
+  bitmap?: ImageBitmap;
+  error?: boolean;
+  x: number;
+  y: number;
+}
+
+/**
+ * Per-batch log collector. Instead of calling console.* once per block
+ * (expensive from a worker, especially in Firefox), problems are counted
+ * here and reported in at most two console calls per batch.
+ */
+interface BatchLog {
+  /** Border blocks skipped because their generation gap was not exactly 1. */
+  generationMismatches: number;
+  minGap: number;
+  maxGap: number;
+  /** Of those, how many were far enough behind to be reported as errors. */
+  markedAsError: number;
+  /** Blocks that threw while decoding or creating their bitmap. */
+  failures: number;
+  firstFailure?: unknown;
+}
+
+function newBatchLog(): BatchLog {
+  return {
+    generationMismatches: 0,
+    minGap: Infinity,
+    maxGap: -Infinity,
+    markedAsError: 0,
+    failures: 0,
+  };
+}
+
+function recordFailure(log: BatchLog, err: unknown): void {
+  log.failures++;
+  if (log.firstFailure === undefined) log.firstFailure = err;
+}
+
+function flushBatchLog(batchId: number, log: BatchLog): void {
+  if (log.generationMismatches > 0) {
+    console.warn(
+      `Batch ${batchId}: skipped ${log.generationMismatches} border block(s) whose saved data was ` +
+      `${log.minGap}..${log.maxGap} generations behind (has to be exactly 1); ` +
+      `${log.markedAsError} marked as error.`,
+    );
+  }
+  if (log.failures > 0) {
+    console.error(`Batch ${batchId}: ${log.failures} block(s) failed to decode. First error:`, log.firstFailure);
+  }
+}
+
 let queue = Promise.resolve();
 
 globalThis.onmessage = function (e: any) {
@@ -17,16 +69,55 @@ globalThis.onmessage = function (e: any) {
 };
 
 async function handleMessage({type, batchId, payload}: any): Promise<void> {
-  const results: any[] = [];
+  const results: WorkerResult[] = [];
+  const pendingBitmaps: Promise<void>[] = [];
+  const log = newBatchLog();
   try {
-    await decodeBatch(type, payload, results);
+    decodeBatch(type, payload, results, pendingBitmaps, log);
   } catch (err) {
     console.error(err);
   }
+  // Every bitmap promise handles its own rejection, so this never throws.
+  // Waiting here (also after an error above) ensures no result is posted
+  // without its bitmap and no bitmap is left behind un-transferred.
+  await Promise.all(pendingBitmaps);
+  flushBatchLog(batchId, log);
   self.postMessage({batchId, results}, {transfer: results.flatMap((r) => r.bitmap ? [r.bitmap] : [])});
 }
 
-async function decodeBatch(type: string, payload: any, results: any[]): Promise<void> {
+/**
+ * Starts createImageBitmap for a decoded block without awaiting it, so all
+ * bitmaps of a batch are created concurrently instead of one after another.
+ * The result slot is pushed immediately to keep results in block order.
+ */
+function queueBitmap(
+  image: ImageData,
+  x: number,
+  y: number,
+  results: WorkerResult[],
+  pendingBitmaps: Promise<void>[],
+  log: BatchLog,
+): void {
+  const result: WorkerResult = {x, y};
+  results.push(result);
+  pendingBitmaps.push(
+    createImageBitmap(image).then(
+      (bitmap) => { result.bitmap = bitmap; },
+      (err) => {
+        result.error = true;
+        recordFailure(log, err);
+      },
+    ),
+  );
+}
+
+function decodeBatch(
+  type: string,
+  payload: any,
+  results: WorkerResult[],
+  pendingBitmaps: Promise<void>[],
+  log: BatchLog,
+): void {
   if (type === 'init') {
     blockSize = payload.blockSize;
   }
@@ -38,8 +129,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     for (const {x, y} of payload.data) {
       const data = encodedBlocks.get(getKey(x, y));
       if (!data) continue;
-      const bitmap = await createImageBitmap(decodeByteArrayToImageData(data));
-      results.push({bitmap, x, y});
+      queueBitmap(decodeByteArrayToImageData(data), x, y, results, pendingBitmaps, log);
     }
     return;
   }
@@ -51,9 +141,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     if (block.type === "FULL") {
       const data = decodeLz4BlockToByteArray(block.encodedCells, blockSize);
       const image = decodeByteArrayToImageData(data);
-      const bitmap = await createImageBitmap(image);
-
-      results.push({bitmap, x: block.x, y: block.y});
+      queueBitmap(image, block.x, block.y, results, pendingBitmaps, log);
 
       encodedBlocks.set(key, data);
       blockGenerationMap.set(key, block.generation);
@@ -61,10 +149,14 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
 
       try {
         const seenBlockGeneration = blockGenerationMap.get(key)!;
-        if (block.generation - seenBlockGeneration !== 1) {
-          console.warn(`Saved Block Data is ${block.generation - seenBlockGeneration} generations behind Border Blocks. Has to be exactly 1.`);
-          if (block.generation - seenBlockGeneration > 3) {
-            results.push({error: true, x: block.x, y: block.y})
+        const gap = block.generation - seenBlockGeneration;
+        if (gap !== 1) {
+          log.generationMismatches++;
+          if (gap < log.minGap) log.minGap = gap;
+          if (gap > log.maxGap) log.maxGap = gap;
+          if (gap > 3) {
+            log.markedAsError++;
+            results.push({error: true, x: block.x, y: block.y});
           }
           continue;
         }
@@ -72,14 +164,13 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
         const data = decodeBorderToBlockBits(block.encodedCells, blockSize);
         fillInnerBlockWithAlgo(data, encodedBlocks.get(key)!);
         const image = decodeByteArrayToImageData(data);
-        const bitmap = await createImageBitmap(image);
+        queueBitmap(image, block.x, block.y, results, pendingBitmaps, log);
 
-        results.push({bitmap, x: block.x, y: block.y});
         blockGenerationMap.set(key, block.generation);
         encodedBlocks.set(key, data);
       } catch (e) {
-        results.push({error: true, x: block.x, y: block.y})
-        console.error(e);
+        results.push({error: true, x: block.x, y: block.y});
+        recordFailure(log, e);
       }
     }
   }
