@@ -86,50 +86,86 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
 
 }
 
-function fillInnerBlockWithAlgo(packedBits: Uint8Array, previousEncodedBlock: Uint8Array) {
-  const heatmap = new Uint8Array(blockSize * blockSize);
-  const bumpHeatmap = (x: number, y: number) => {
-    const i = x * blockSize + y;
-    if (heatmap[i] < 9) heatmap[i]++;
-  };
-  const at = (x: number, y: number) => heatmap[x * blockSize + y];
+function neighborLoopWithIndexCheck(x: number, y: number, size: number, heatmap: Uint8Array) {
+  for (let i = -1; i <= 1; i++) {
+    if (x + i < 0 || x + i >= size) continue;
+    for (let j = -1; j <= 1; j++) {
+      if (y + j < 0 || y + j >= size) continue;
 
-  for (let x = 0; x < blockSize; x++) {
-    for (let y = 0; y < blockSize; y++) {
-      if (!getCellAt(x, y, previousEncodedBlock)) continue;
+      heatmap[(x + i) * size + (y + j)]++;
+    }
+  }
+}
 
-      // loop over all the neighbors to increment neighbor count
-      for (let i = -1; i <= 1; i++) {
-        for (let j = -1; j <= 1; j++) {
+function getNewHeatmap(block: Uint8Array): Uint8Array {
+  const size = blockSize;
+  const heatmap = new Uint8Array(size * size);
 
-          // skip itself
-          if (i == 0 && j == 0) continue;
-
-          // skip out of index cells
-          if (x + i < 0 || y + j < 0) continue;
-          if (x + i >= blockSize + 2 || y + j >= blockSize + 2) continue;
-
-          bumpHeatmap(x + i, y + j);
-        }
-      }
-
+  // border loops. Only those need the expensive out-of-index guards
+  for (let x = 0; x < size; x++) {
+    if (getCellAt(x, 0, block)) {
+      neighborLoopWithIndexCheck(x, 0, size, heatmap);
+    }
+    if (getCellAt(x, size - 1, block)) {
+      neighborLoopWithIndexCheck(x, size - 1, size, heatmap);
+    }
+  }
+  for (let y = 1; y < size - 1; y++) {
+    if (getCellAt(0, y, block)) {
+      neighborLoopWithIndexCheck(0, y, size, heatmap);
+    }
+    if (getCellAt(size - 1, y, block)) {
+      neighborLoopWithIndexCheck(size - 1, y, size, heatmap);
     }
   }
 
-  for (let x = 1; x < blockSize - 1; x++) {
-    for (let y = 1; y < blockSize - 1; y++) {
+  // inner loop go zooming
+  for (let x = 1; x < size - 1; x++) {
+    for (let y = 1; y < size - 1; y++) {
 
-      const heatMapValue = at(x, y);
-      // If cell was dead
-      if (getCellAt(x, y, previousEncodedBlock)) {
-        setBit(packedBits, x * blockSize + y, heatMapValue == 2 || heatMapValue == 3)
+      // skip when the current cell is dead
+      if (!getCellAt(x, y, block)) continue;
+
+      const i = x * size + y;
+
+      // increment all 8 neighbors (flat-index equivalent of heatmap[x±1][y±1])
+      heatmap[i - size - 1]++;
+      heatmap[i - size]++;
+      heatmap[i - size + 1]++;
+
+      heatmap[i - 1]++;
+      heatmap[i + 1]++;
+
+      heatmap[i + size - 1]++;
+      heatmap[i + size]++;
+      heatmap[i + size + 1]++;
+    }
+  }
+  return heatmap;
+}
+
+function applyGameOfLifeRulesFromHeatmap(packedBits: Uint8Array, previousEncodedBlock: Uint8Array, heatmap: Uint8Array) {
+  const size = blockSize;
+  for (let x = 1; x < size - 1; x++) {
+    for (let y = 1; y < size - 1; y++) {
+      const i = x * size + y;
+      const heat = heatmap[i];
+
+      // cell was dead
+      if (!getCellAt(x, y, previousEncodedBlock)) {
+        setBit(packedBits, i, heat === 3);
       }
-      // If cell was alive
+      // cell was alive
       else {
-        setBit(packedBits, x * blockSize + y, heatMapValue == 3)
+        setBit(packedBits, i, heat === 2 || heat === 3);
       }
     }
   }
+}
+
+function fillInnerBlockWithAlgo(packedBits: Uint8Array, previousEncodedBlock: Uint8Array) {
+  const heatmap = getNewHeatmap(previousEncodedBlock);
+  applyGameOfLifeRulesFromHeatmap(packedBits, previousEncodedBlock, heatmap);
 }
 
 function decodePooledImageData(packed: Uint8Array): ImageData {
