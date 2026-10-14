@@ -1,6 +1,7 @@
 import { decompressBlock } from 'lz4js';
 import { getKey } from './utils.component';
 import {Block} from '../../../requests/incoming/Block';
+import {BORDER, FramedBlock, FULL, readBlockFrame} from './block-frame';
 
 let blockSize: number;
 
@@ -43,13 +44,18 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     }
     return;
   }
-  const blockList: Block[] = payload.data;
+
+  const blockList: Pick<FramedBlock, 'x' | 'y' | 'type' | 'generation' | 'cells'>[] = type === 'init'
+    ? (payload.data as Block[]).map((b) => ({
+      x: b.x, y: b.y, generation: b.generation, type: b.type === 'FULL' ? FULL : BORDER, cells: base64ToBytes(b.encodedCells),
+    }))
+    : readBlockFrame(new Uint8Array(payload.frame));
 
   for (const block of blockList) {
     const key = getKey(block.x, block.y);
 
-    if (block.type === "FULL") {
-      const data = decodeLz4BlockToByteArray(block.encodedCells, blockSize);
+    if (block.type === FULL) {
+      const data = decodeLz4BlockToByteArray(block.cells, blockSize);
       const image = decodeByteArrayToImageData(data);
       const bitmap = await toBitmap(image);
 
@@ -57,7 +63,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
 
       encodedBlocks.set(key, data);
       blockGenerationMap.set(key, block.generation);
-    } else {
+    } else if (block.type === BORDER) {
 
       try {
         const seenBlockGeneration = blockGenerationMap.get(key)!;
@@ -70,7 +76,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
         }
 
         const data = stepGameOfLife(encodedBlocks.get(key)!);
-        writeBorder(block.encodedCells, data);
+        writeBorder(block.cells, data);
         const image = decodeByteArrayToImageData(data);
         const bitmap = await toBitmap(image);
 
@@ -81,119 +87,127 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
         results.push({error: true, x: block.x, y: block.y})
         console.error(e);
       }
+    } else {
+      console.warn(`Unknown block type ${block.type} for ${key}`);
     }
   }
 
 }
 
-// Scratch for stepGameOfLife, reused between blocks: the previous generation as 32-bit words with
-// zero padding on both sides, the two bit planes of each cell's vertical sum, and the next generation.
-let lifeCells = new Int32Array(0);
-let lifeOnes = new Int32Array(0);
-let lifeTwos = new Int32Array(0);
+let lifeSource = new Int32Array(0);
+let lifeRows: Int32Array[] = [];
+let lifeNextRow = new Int32Array(0);
 let lifeNext = new Int32Array(0);
+let innerMask = new Int32Array(0);
+let words = 0;
+let lastWordMask = -1;
 
 /**
- * One Game of Life generation for a block, 32 cells per operation. The inner cells are exact; the
- * border cells come out as junk, so the caller must overwrite them with the server's border.
- *
- * The cells are one bit string (bit x * blockSize + y), so the neighbours of bit i are i ± 1 (y ± 1,
- * which stays inside the column for inner cells) and i ± blockSize (x ± 1). Each cell is first summed
- * with its y ± 1 neighbours into two bit planes (0..3), then the sums of the columns either side are
- * added, giving 0..9 including the cell itself. The cell lives on a total of 3, or of 4 if it was alive.
+ * port of gol algo in backend
  */
 function stepGameOfLife(previous: Uint8Array): Uint8Array {
-  const words = Math.ceil(previous.length / 4);
-  const columnWords = blockSize >>> 5;
-  const columnBits = blockSize & 31;
-  const pad = columnWords + 2;
-  const total = words + 2 * pad;
-  if (lifeCells.length !== total) {
-    lifeCells = new Int32Array(total);
-    lifeOnes = new Int32Array(total);
-    lifeTwos = new Int32Array(total);
-    lifeNext = new Int32Array(total);
-  }
-  // Bytes past previous.length are never written, so the padding stays zero.
-  new Uint8Array(lifeCells.buffer).set(previous, pad * 4);
+  prepareLife(previous.length);
+  new Uint8Array(lifeSource.buffer).set(previous);
+  for (let x = 0; x < blockSize; x++) packRow(lifeSource, lifeRows[x], x);
 
-  sumColumns(lifeCells, lifeOnes, lifeTwos, total);
-  if (columnBits === 0) {
-    stepAligned(lifeCells, lifeOnes, lifeTwos, lifeNext, pad, pad + words, columnWords);
-  } else {
-    stepUnaligned(lifeCells, lifeOnes, lifeTwos, lifeNext, pad, pad + words, columnWords, columnBits);
+  lifeNext.fill(0);
+  for (let x = 1; x < blockSize - 1; x++) {
+    nextRow(lifeRows[x - 1], lifeRows[x], lifeRows[x + 1], lifeNextRow);
+    unpackRow(lifeNextRow, lifeNext, x);
   }
 
   const next = new Uint8Array(previous.length);
-  next.set(new Uint8Array(lifeNext.buffer, pad * 4, previous.length));
-  // Keep the bits past the last cell zero, like a freshly decoded block.
-  const cells = blockSize * blockSize;
-  if (cells & 7) next[next.length - 1] &= (1 << (cells & 7)) - 1;
+  next.set(new Uint8Array(lifeNext.buffer, 0, previous.length));
   return next;
 }
 
-/** Each cell plus its y - 1 and y + 1 neighbours, as two bit planes. */
-function sumColumns(cells: Int32Array, ones: Int32Array, twos: Int32Array, total: number): void {
-  for (let k = 1; k < total - 1; k++) {
-    const c = cells[k];
-    const up = (c << 1) | (cells[k - 1] >>> 31);
-    const down = (c >>> 1) | (cells[k + 1] << 31);
-    const half = up ^ c;
-    ones[k] = half ^ down;
-    twos[k] = (up & c) | (down & half);
+function prepareLife(bytes: number): void {
+  if (lifeRows.length === blockSize && lifeSource.length * 4 >= bytes + 4) return;
+  words = (blockSize + 31) >>> 5;
+  lastWordMask = blockSize & 31 ? (1 << (blockSize & 31)) - 1 : -1;
+  lifeSource = new Int32Array(Math.ceil(bytes / 4) + 1);
+  lifeNext = new Int32Array(Math.ceil(bytes / 4) + 1);
+  lifeNextRow = new Int32Array(words + 2);
+  const rows = new Int32Array(blockSize * (words + 2));
+  lifeRows = Array.from({length: blockSize}, (_, x) => rows.subarray(x * (words + 2), (x + 1) * (words + 2)));
+  innerMask = new Int32Array(words + 2);
+  for (let y = 1; y < blockSize - 1; y++) innerMask[(y >>> 5) + 1] |= 1 << y;
+}
+
+function nextRow(upperRow: Int32Array, middleRow: Int32Array, downRow: Int32Array, out: Int32Array): void {
+  for (let i = 1; i <= words; i++) {
+    // neighbours to the left / right: shift the word and pull in the edge bit of the adjacent word
+    const upperWord = upperRow[i];
+    const upperWordLeft = (upperWord << 1) | (upperRow[i - 1] >>> 31);
+    const upperWordRight = (upperWord >>> 1) | (upperRow[i + 1] << 31);
+    const middleWord = middleRow[i];
+    const middleWordLeft = (middleWord << 1) | (middleRow[i - 1] >>> 31);
+    const middleWordRight = (middleWord >>> 1) | (middleRow[i + 1] << 31);
+    const downWord = downRow[i];
+    const downWordLeft = (downWord << 1) | (downRow[i - 1] >>> 31);
+    const downWordRight = (downWord >>> 1) | (downRow[i + 1] << 31);
+
+    // per row: 2-bit sum of the neighbours in that row (twos bit: 0 or 1 neighbours = 0, 2 or 3 neighbours = 1)
+    const upperEitherLeftOrMiddle = upperWordLeft ^ upperWord;
+    const upperOddNumberAlive = upperEitherLeftOrMiddle ^ upperWordRight;
+    const upperTwosBitNeighbours = (upperWordLeft & upperWord) | (upperEitherLeftOrMiddle & upperWordRight);
+    const middleOddNumberAlive = middleWordLeft ^ middleWordRight;
+    const middleTwosBit = middleWordLeft & middleWordRight;
+    const downEitherLeftOrMiddle = downWordLeft ^ downWord;
+    const downOddNumberAlive = downEitherLeftOrMiddle ^ downWordRight;
+    const downTwosBitNeighbours = (downWordLeft & downWord) | (downEitherLeftOrMiddle & downWordRight);
+
+    const upperOrMiddleIsOdd = upperOddNumberAlive ^ middleOddNumberAlive;
+    const combinedOddNumberAlive = upperOrMiddleIsOdd ^ downOddNumberAlive;
+    const combinedOddNumberCarry = (upperOddNumberAlive & middleOddNumberAlive) | (upperOrMiddleIsOdd & downOddNumberAlive);
+
+    // 2 or 3 neighbours <=> exactly one of the four "twos" bits is set
+    const p = upperTwosBitNeighbours ^ middleTwosBit;
+    const q = upperTwosBitNeighbours & middleTwosBit;
+    const r = downTwosBitNeighbours ^ combinedOddNumberCarry;
+    const t = downTwosBitNeighbours & combinedOddNumberCarry;
+    const twoOrThree = (p ^ r) & ~(q | t);
+
+    // 3 neighbours: born or survives, 2 neighbours: survives only if alive
+    const next = twoOrThree & (combinedOddNumberAlive | middleWord);
+    const changed = (next ^ middleWord) & innerMask[i];
+    out[i] = middleWord ^ changed;
   }
 }
 
-/**
- * Adds the column sums at x - 1, x and x + 1 (bit offsets -blockSize, 0, +blockSize) and applies the
- * rule. blockSize is a multiple of 32 here, so those offsets are whole words.
- */
-function stepAligned(cells: Int32Array, ones: Int32Array, twos: Int32Array, next: Int32Array, from: number, to: number, columnWords: number): void {
-  for (let k = from; k < to; k++) {
-    next[k] = applyRule(cells[k],
-      ones[k - columnWords], twos[k - columnWords], ones[k], twos[k], ones[k + columnWords], twos[k + columnWords]);
+function packRow(source: Int32Array, row: Int32Array, x: number): void {
+  const bit = x * blockSize;
+  const first = (bit >>> 5) - 1;
+  const shift = bit & 31;
+  if (shift === 0) {
+    for (let i = 1; i <= words; i++) row[i] = source[first + i];
+  } else {
+    for (let i = 1; i <= words; i++) row[i] = (source[first + i] >>> shift) | (source[first + i + 1] << (32 - shift));
+  }
+  row[words] &= lastWordMask;
+}
+
+function unpackRow(row: Int32Array, target: Int32Array, x: number): void {
+  const bit = x * blockSize;
+  const first = (bit >>> 5) - 1;
+  const shift = bit & 31;
+  if (shift === 0) {
+    for (let i = 1; i <= words; i++) target[first + i] |= row[i];
+  } else {
+    for (let i = 1; i <= words; i++) {
+      target[first + i] |= row[i] << shift;
+      target[first + i + 1] |= row[i] >>> (32 - shift);
+    }
   }
 }
 
-/** stepAligned for a blockSize that is not a multiple of 32: the neighbouring columns straddle two words. */
-function stepUnaligned(cells: Int32Array, ones: Int32Array, twos: Int32Array, next: Int32Array, from: number, to: number, columnWords: number, columnBits: number): void {
-  const back = 32 - columnBits;
-  for (let k = from; k < to; k++) {
-    const l = k - columnWords;
-    const r = k + columnWords;
-    next[k] = applyRule(cells[k],
-      (ones[l - 1] >>> back) | (ones[l] << columnBits), (twos[l - 1] >>> back) | (twos[l] << columnBits),
-      ones[k], twos[k],
-      (ones[r] >>> columnBits) | (ones[r + 1] << back), (twos[r] >>> columnBits) | (twos[r + 1] << back));
-  }
-}
-
-/** Sums three 2-bit column sums per bit (0..9) and keeps the cells totalling 3, or 4 when alive. */
-function applyRule(alive: number, a0: number, a1: number, b0: number, b1: number, c0: number, c1: number): number {
-  const halfOnes = a0 ^ b0;
-  const t0 = halfOnes ^ c0;                          // total bit 0
-  const carry = (a0 & b0) | (c0 & halfOnes);         // weight 2
-  const halfTwos = a1 ^ b1;
-  const twos = halfTwos ^ c1;
-  const fours = (a1 & b1) | (c1 & halfTwos);         // weight 4
-  const t1 = twos ^ carry;                           // total bit 1
-  const t2 = fours ^ (twos & carry);                 // total bit 2; bit 3 is only set for 8 and 9
-  // A total of 11 or 12 cannot occur, so bit 3 never turns 8/9 into a false 3 or 4.
-  return (t0 & t1 & ~t2) | (~t0 & ~t1 & t2 & alive);
-}
-
-// Pixels are written as whole RGBA words through a little-endian Int32Array. Signed on purpose:
-// values above 2^31 in a Uint32Array are boxed as doubles and run several times slower.
-// A cell bit becomes a pixel as (bit - 1) | BLACK: 0 -> -1 (white), 1 -> BLACK. Plain bit operations
-// are as fast as anything in V8 and SpiderMonkey, and about 4x faster than a multiply in Safari's JSC.
-const BLACK = 0xff000000 | 0; // R = G = B = 0, A = 255
+const BLACK = Math.trunc(0xff000000); // R = G = B = 0, A = 255
 const POPCOUNT = new Uint8Array(256).map((_, b) => {
   let n = 0;
   for (let v = b; v; v &= v - 1) n++;
   return n;
 });
 
-// Turning the pixels into a bitmap copies them, so one ImageData per worker is reused between blocks.
 let scratchImage: ImageData | undefined;
 
 function imageOfSize(size: number): ImageData {
@@ -382,11 +396,8 @@ function transposeColumn(packed: Uint8Array, pixels: Int32Array, x: number): voi
   }
 }
 
-function decodeLz4BlockToByteArray(encodedCells: string, blockSize: number): Uint8Array {
-  // Step 1: Base64 → compressed bytes
-  const compressedBytes = base64ToBytes(encodedCells);
-
-  // Step 2: LZ4 decompress → packed bits (column-major: bit[x * blockSize + y])
+function decodeLz4BlockToByteArray(compressedBytes: Uint8Array, blockSize: number): Uint8Array {
+  // LZ4 decompress → packed bits (column-major: bit[x * blockSize + y])
   const packedBits = new Uint8Array(Math.ceil(blockSize * blockSize / 8));
   decompressBlock(compressedBytes, packedBits, 0, compressedBytes.length, 0);
 
@@ -415,12 +426,10 @@ function setBit(bits: Uint8Array, i: number, value: boolean): void {
 }
 
 /**
- * Decodes a border payload and writes it over the border cells of blockBits, setting and clearing.
+ * Decompresses a border payload and writes it over the border cells of blockBits, setting and clearing.
  * Inner cells are left as they are.
  */
-function writeBorder(encodedCells: string, blockBits: Uint8Array): void {
-  const compressedBytes = base64ToBytes(encodedCells);
-
+function writeBorder(compressedBytes: Uint8Array, blockBits: Uint8Array): void {
   const totalBits = blockSize * 4 - 4;
   const borderBits = new Uint8Array(Math.ceil(totalBits / 8));
   decompressBlock(compressedBytes, borderBits, 0, compressedBytes.length, 0);
