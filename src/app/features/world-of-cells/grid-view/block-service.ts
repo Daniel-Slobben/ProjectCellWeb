@@ -1,9 +1,9 @@
 import {Injectable, OnDestroy} from '@angular/core';
-import {IMessage, RxStomp} from '@stomp/rx-stomp';
 import {ClientUpdateRequest} from '../../../requests/outgoing/ClientUpdateRequest';
-import {Subject, Subscription} from 'rxjs';
-import {getKey} from './utils.component';
+import {Subject} from 'rxjs';
+import {getKey, workerIndex} from './utils.component';
 import {Block} from '../../../requests/incoming/Block';
+import type {SocketCommand, SocketEvent} from './stomp.worker';
 
 interface WorkerResult {
   bitmap?: ImageBitmap;
@@ -21,7 +21,7 @@ interface PendingBatch {
 
 @Injectable({providedIn: 'root'})
 export class BlockService implements OnDestroy {
-  private readonly stompClient: RxStomp;
+  private readonly socket: Worker;
   private readonly blockData = new Map<string, ImageBitmap | undefined>();
   private generation = 0;
 
@@ -36,8 +36,6 @@ export class BlockService implements OnDestroy {
   private poolFactor = 1;
   private blockSize = 0;
   public clientId = '';
-  private readonly subscriptionFull?: Subscription;
-  private subscription?: Subscription;
 
   private readonly publishWindowMs = 150;
   private publishTimer: ReturnType<typeof setTimeout> | null = null;
@@ -51,28 +49,19 @@ export class BlockService implements OnDestroy {
   public readonly sessionDead$ = this.sessionDeadSubject.asObservable();
 
   constructor() {
-    this.stompClient = new RxStomp();
-    this.configureWebSocket();
+    this.socket = new Worker(new URL('./stomp.worker.ts', import.meta.url), {type: 'module'});
+    this.socket.onmessage = (e: MessageEvent<SocketEvent>) => this.onSocketEvent(e.data);
+    this.sendToSocket({type: 'activate', brokerURL: BlockService.brokerUrl('/ws')});
   }
 
   ngOnDestroy(): void {
     this.teardownSession();
-    this.subscriptionFull?.unsubscribe();
     this.sessionDeadSubject.complete();
-    void this.stompClient.deactivate();
+    this.sendToSocket({type: 'deactivate'});
   }
 
   public getGeneration(): number {
     return this.generation;
-  }
-
-  private configureWebSocket(): void {
-    this.stompClient.configure({
-      brokerURL: BlockService.brokerUrl('/ws'),
-      connectHeaders: {},
-      reconnectDelay: 500,
-    });
-    this.stompClient.activate();
   }
 
   private static brokerUrl(path: string): string {
@@ -87,32 +76,33 @@ export class BlockService implements OnDestroy {
     this.clientId = clientId;
 
     this.createWorkerPool(blocks);
-
-    this.subscription = this.stompClient
-      .watch('/topic/' + this.clientId)
-      .subscribe((message: IMessage) => {
-        const body = JSON.parse(message.body);
-
-        if (body?.type === 'HEALTH_ACK') {
-          this.lastServerContact = new Date();
-          return;
-        }
-
-        if (body?.type === 'SESSION_DEAD') {
-          this.sessionDeadSubject.next();
-          return;
-        }
-
-        this.lastServerContact = new Date();
-        this.dispatchToWorkers('payload', body);
-      });
+    this.sendToSocket({type: 'subscribe', clientId, workers: this.workers.length});
 
     this.healthCheckInterval = setInterval(() => {
-      this.stompClient.publish({
-        destination: '/health-check',
-        body: JSON.stringify(this.clientId)
-      })
+      this.publishToSocket('/health-check', JSON.stringify(this.clientId));
     }, this.healthCheckIntervalMs)
+  }
+
+  private sendToSocket(command: SocketCommand): void {
+    this.socket.postMessage(command);
+  }
+
+  private publishToSocket(destination: string, body: string): void {
+    this.sendToSocket({type: 'publish', destination, body});
+  }
+
+  private onSocketEvent(event: SocketEvent): void {
+    if (event.clientId !== this.clientId) return;
+
+    this.lastServerContact = new Date();
+    switch (event.type) {
+      case 'sessionDead':
+        this.sessionDeadSubject.next();
+        break;
+      case 'blocks':
+        this.postBatch(event.perWorker.map((frame) => frame && {type: 'payload', frame}));
+        break;
+    }
   }
 
   private createWorkerPool(blocks: Block[]): void {
@@ -134,25 +124,30 @@ export class BlockService implements OnDestroy {
   setPoolFactor(factor: number, visible: Pick<Block, 'x' | 'y'>[]): void {
     if (factor === this.poolFactor) return;
     this.poolFactor = factor;
-    // Only blocks we hold a current bitmap for; one coming back into view waits for its FULL.
     this.dispatchToWorkers('rescale', visible.filter(({x, y}) => this.blockData.has(getKey(x, y))));
   }
 
-  private dispatchToWorkers(type: 'init' | 'payload' | 'rescale', blocks: Pick<Block, 'x' | 'y'>[]): void {
+  private dispatchToWorkers(type: 'init' | 'rescale', blocks: Pick<Block, 'x' | 'y'>[]): void {
     const perWorker: Pick<Block, 'x' | 'y'>[][] = this.workers.map(() => []);
     for (const block of blocks) {
-      let worker = Math.abs(block.x * 1000003 + block.y) % this.workers.length;
-      perWorker[worker].push(block);
+      perWorker[workerIndex(block.x, block.y, this.workers.length)].push(block);
     }
 
+    this.postBatch(perWorker.map((data) => ({type, data})));
+  }
+
+  private postBatch(messages: ({type: string, data?: Pick<Block, 'x' | 'y'>[], frame?: ArrayBuffer} | null)[]): void {
     const batchId = ++this.lastBatchId;
     const batch: PendingBatch = {id: batchId, pending: 0, results: []};
 
-    // init and rescale must hit
-    perWorker.forEach((data, i) => {
-      if (type === 'payload' && data.length === 0) return;
+    messages.forEach((message, i) => {
+      if (!message) return;
       batch.pending++;
-      this.workers[i].postMessage({type, batchId, payload: {blockSize: this.blockSize, poolFactor: this.poolFactor, data}});
+      const {type, data, frame} = message;
+      this.workers[i].postMessage(
+        {type, batchId, payload: {blockSize: this.blockSize, poolFactor: this.poolFactor, data, frame}},
+        frame ? [frame] : [],
+      );
     });
 
     if (batch.pending > 0) {
@@ -162,7 +157,7 @@ export class BlockService implements OnDestroy {
 
   private onWorkerResults(batchId: number, results: WorkerResult[]): void {
     const batch = this.pendingBatches.find((b) => b.id === batchId);
-    if (!batch) return; // from a session that has since been torn down
+    if (!batch) return;
 
     batch.results.push(...results);
     batch.pending--;
@@ -186,16 +181,14 @@ export class BlockService implements OnDestroy {
       }
 
       if (this.noEditKey !== key) {
+        this.blockData.get(key)?.close();
         this.blockData.set(key, bitmap);
       } else {
         bitmap?.close();
       }
     }
     if (errorBlock.length > 0) {
-      this.stompClient.publish({
-        destination: '/client-update',
-        body: JSON.stringify(new ClientUpdateRequest(this.clientId, [], errorBlock)),
-      });
+      this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest(this.clientId, [], errorBlock)));
     }
   }
 
@@ -244,10 +237,7 @@ export class BlockService implements OnDestroy {
 
     if (toRemove.length === 0 && toAdd.length === 0) return;
 
-    this.stompClient.publish({
-      destination: '/client-update',
-      body: JSON.stringify(new ClientUpdateRequest(this.clientId, toRemove, toAdd)),
-    });
+    this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest(this.clientId, toRemove, toAdd)));
     this.publishedBlocks = new Set(this.activeBlocks);
   }
 
@@ -264,8 +254,7 @@ export class BlockService implements OnDestroy {
       clearInterval(this.healthCheckInterval);
       this.healthCheckInterval = null;
     }
-    this.subscription?.unsubscribe();
-    this.subscription = undefined;
+    this.sendToSocket({type: 'unsubscribe'});
 
     for (const worker of this.workers) {
       worker.terminate();
@@ -276,6 +265,7 @@ export class BlockService implements OnDestroy {
     }
     this.pendingBatches = [];
 
+    for (const bitmap of this.blockData.values()) bitmap?.close();
     this.blockData.clear();
     this.publishedBlocks.clear();
     this.noEditKey = undefined;

@@ -5,7 +5,10 @@
     "ng": "ng",
     "start": "ng serve --proxy-config proxy.conf.json",
     "build": "ng build",
-    "watch": "ng build --watch --configuration development"
+    "watch": "ng build --watch --configuration development",
+    "bench": "ng build && node bench/run.mjs",
+    "bench:serve": "ng build && node bench/server.mjs",
+    "bench:gol": "node bench/gol/run.mjs"
   },
   "private": true,
   "dependencies": {
@@ -24,6 +27,7 @@
     "@angular/cli": "^22.2.0",
     "@angular/compiler-cli": "^22.2.0",
     "@types/lz4js": "^0.2.2",
+    "playwright-core": "1.55.1",
     "typescript": "~6.0.3"
   }
 }
