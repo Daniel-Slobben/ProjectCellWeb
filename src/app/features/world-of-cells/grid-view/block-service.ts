@@ -93,7 +93,7 @@ export class BlockService implements OnDestroy {
   private onSocketEvent(event: SocketEvent): void {
     if (event.clientId !== this.clientId) return;
 
-    // this.lastServerContact = new Date();
+    this.lastServerContact = new Date();
     switch (event.type) {
       case 'sessionDead':
         this.sessionDeadSubject.next();
