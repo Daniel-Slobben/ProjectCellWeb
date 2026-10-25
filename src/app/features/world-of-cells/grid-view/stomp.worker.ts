@@ -8,9 +8,11 @@ export type SocketCommand =
   | {type: 'subscribe'; clientId: string; workers: number}
   | {type: 'unsubscribe'}
   | {type: 'publish'; destination: string; body: string}
+  | {type: 'renew'}
   | {type: 'deactivate'};
 
 export type SocketEvent =
+  | {type: 'connected'}
   | {type: 'blocks'; clientId: string; perWorker: (ArrayBuffer | null)[]}
   | {type: 'healthAck'; clientId: string}
   | {type: 'sessionDead'; clientId: string};
@@ -23,7 +25,8 @@ globalThis.onmessage = (e: MessageEvent<SocketCommand>) => {
   switch (command.type) {
     case 'activate':
       stomp = new RxStomp();
-      stomp.configure({brokerURL: command.brokerURL, connectHeaders: {}, reconnectDelay: 500});
+      stomp.configure({brokerURL: command.brokerURL, connectHeaders: {}, reconnectDelay: 500, discardWebsocketOnCommFailure: true});
+      stomp.connected$.subscribe(() => post({type: 'connected'}));
       stomp.activate();
       break;
     case 'subscribe':
@@ -38,6 +41,10 @@ globalThis.onmessage = (e: MessageEvent<SocketCommand>) => {
       break;
     case 'publish':
       stomp?.publish({destination: command.destination, body: command.body});
+      break;
+    case 'renew':
+      // Drops the socket at once, without a closing handshake, and reconnects.
+      stomp?.stompClient.forceDisconnect();
       break;
     case 'deactivate':
       subscription?.unsubscribe();

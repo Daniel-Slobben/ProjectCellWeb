@@ -82,6 +82,10 @@ export class BlockService implements OnDestroy {
     }, this.healthCheckIntervalMs)
   }
 
+  public renewSocket(): void {
+    this.sendToSocket({type: 'renew'});
+  }
+
   private sendToSocket(command: SocketCommand): void {
     this.socket.postMessage(command);
   }
@@ -91,6 +95,12 @@ export class BlockService implements OnDestroy {
   }
 
   private onSocketEvent(event: SocketEvent): void {
+    if (event.type === 'connected') {
+      // Anything sent on the previous socket may have been lost, so send the whole block list again.
+      this.publishedBlocks.clear();
+      this.schedulePublish();
+      return;
+    }
     if (event.clientId !== this.clientId) return;
 
     this.lastServerContact = new Date();
