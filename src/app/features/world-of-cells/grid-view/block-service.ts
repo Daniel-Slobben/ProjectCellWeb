@@ -274,8 +274,6 @@ export class BlockService implements OnDestroy {
     }
     this.pendingBatches = [];
 
-    for (const bitmap of this.blockData.values()) bitmap?.close();
-    this.blockData.clear();
     this.publishedBlocks.clear();
     this.noEditKey = undefined;
     this.generation++;
