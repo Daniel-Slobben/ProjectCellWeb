@@ -14,7 +14,6 @@ interface WorkerResult {
 
 interface PendingBatch {
   id: number;
-  /** Workers that still owe a reply for this batch. */
   pending: number;
   results: WorkerResult[];
 }
@@ -94,7 +93,7 @@ export class BlockService implements OnDestroy {
   private onSocketEvent(event: SocketEvent): void {
     if (event.clientId !== this.clientId) return;
 
-    this.lastServerContact = new Date();
+    // this.lastServerContact = new Date();
     switch (event.type) {
       case 'sessionDead':
         this.sessionDeadSubject.next();
