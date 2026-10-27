@@ -61,7 +61,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   public selectedBlock: { x: number; y: number } | null = null;
 
-  private readonly reconnectThresholdMs = 12000;
+  // Ticks come every 500 ms, so a few seconds of silence means the socket is gone, even if it never closed.
+  private readonly reconnectThresholdMs = 4000;
+  private readonly wakeReconnectThresholdMs = 1500;
   private watchdogInterval: ReturnType<typeof setInterval> | null = null;
   private sessionDeadSubscription?: Subscription;
   private reconnectInFlight = false;
@@ -91,11 +93,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.setupCanvasEvents();
     this.startRenderLoop();
 
-    this.watchdogInterval = setInterval(() => {
-      if (this.blockService.lastServerContact.getTime() < Date.now() - this.reconnectThresholdMs) {
-        this.reconnect();
-      }
-    }, 500);
+    this.watchdogInterval = setInterval(() => this.reconnectIfSilentFor(this.reconnectThresholdMs), 500);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
 
     this.sessionDeadSubscription = this.blockService.sessionDead$.subscribe(() => {
       this.reconnect();
@@ -108,6 +107,19 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.blockService.setup(settings.blockSize, settings.clientId, settings.blocks)
       this.centerOn(settings.chaosHit.worldX, settings.chaosHit.worldY);
     });
+  }
+
+  // A phone waking from standby often holds a socket that died without closing, so don't wait for the watchdog.
+  private readonly onVisibilityChange = () => {
+    if (document.visibilityState === 'visible') {
+      this.reconnectIfSilentFor(this.wakeReconnectThresholdMs);
+    }
+  };
+
+  private reconnectIfSilentFor(ms: number): void {
+    if (this.blockService.lastServerContact.getTime() < Date.now() - ms) {
+      this.reconnect();
+    }
   }
 
   private reconnect(): void {
@@ -140,6 +152,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.watchdogInterval = null;
     }
     this.sessionDeadSubscription?.unsubscribe();
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
   }
 
   private startRenderLoop() {
