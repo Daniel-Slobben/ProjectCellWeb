@@ -61,9 +61,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   public selectedBlock: { x: number; y: number } | null = null;
 
-  // Ticks come every 500 ms, so a few seconds of silence means the socket is gone, even if it never closed.
-  private readonly reconnectThresholdMs = 4000;
-  private readonly wakeReconnectThresholdMs = 1500;
+  // Ticks come every 500 ms, so a short silence means the socket is gone, even if it never closed.
+  private readonly reconnectThresholdMs = 1500;
   private watchdogInterval: ReturnType<typeof setInterval> | null = null;
   private sessionDeadSubscription?: Subscription;
   private reconnectInFlight = false;
@@ -93,7 +92,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.setupCanvasEvents();
     this.startRenderLoop();
 
-    this.watchdogInterval = setInterval(() => this.reconnectIfSilentFor(this.reconnectThresholdMs), 500);
+    this.watchdogInterval = setInterval(() => this.reconnectIfSilentFor(this.reconnectThresholdMs), 250);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
 
     this.sessionDeadSubscription = this.blockService.sessionDead$.subscribe(() => {
@@ -112,7 +111,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   // A phone waking from standby often holds a socket that died without closing, so don't wait for the watchdog.
   private readonly onVisibilityChange = () => {
     if (document.visibilityState === 'visible') {
-      this.reconnectIfSilentFor(this.wakeReconnectThresholdMs);
+      this.reconnectIfSilentFor(this.reconnectThresholdMs);
     }
   };
 
