@@ -11,7 +11,6 @@ import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import { getKey } from './utils.component';
 import {Settings} from '../../../requests/incoming/Settings';
-import {ChaosHit} from '../../../requests/incoming/ChaosHit';
 import {ReconnectRequest} from '../../../requests/outgoing/ReconnectRequest';
 import {ReconnectResponse} from '../../../requests/incoming/ReconnectResponse';
 import {Subscription} from 'rxjs';
@@ -104,7 +103,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
       this.blockSize = settings.blockSize;
       this.blockService.setup(settings.blockSize, settings.clientId, settings.blocks)
-      this.centerOn(settings.chaosHit.worldX, settings.chaosHit.worldY);
+      this.centerOn(settings.viewport.x, settings.viewport.y);
     });
   }
 
@@ -131,8 +130,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         this.blockService.renewSocket();
         this.blockService.setup(this.blockSize, reconnectResponse.clientId, []);
         this.blockService.lastServerContact = new Date();
-        if (reconnectResponse.chaosHit) {
-          this.centerOn(reconnectResponse.chaosHit.worldX, reconnectResponse.chaosHit.worldY);
+        if (reconnectResponse.viewport) {
+          this.centerOn(reconnectResponse.viewport.x, reconnectResponse.viewport.y);
         }
         this.reconnectInFlight = false;
       }, error: () => {

@@ -1,6 +1,6 @@
-import {ChaosHit} from './ChaosHit';
+import {Coordinates} from './Coordinates';
 
 export interface ReconnectResponse {
   readonly clientId: string;
-  readonly chaosHit: ChaosHit | undefined;
+  readonly viewport: Coordinates | null;
 }
