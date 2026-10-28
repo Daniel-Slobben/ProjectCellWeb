@@ -1,5 +1,5 @@
-import { decompressBlock } from 'lz4js';
-import { getKey } from './utils.component';
+import {decompressBlock} from 'lz4js';
+import {getKey} from './utils.component';
 import {Block} from '../../../requests/incoming/Block';
 import {BORDER, FramedBlock, FULL, readBlockFrame} from './block-frame';
 
@@ -45,10 +45,18 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     return;
   }
 
-  const blockList: Pick<FramedBlock, 'x' | 'y' | 'type' | 'generation' | 'cells'>[] = type === 'init'
-    ? (payload.data as Block[]).map((b) => ({
-      x: b.x, y: b.y, generation: b.generation, type: b.type === 'FULL' ? FULL : BORDER, cells: base64ToBytes(b.encodedCells),
-    }))
+  type BlockSummary = Pick<FramedBlock, 'x' | 'y' | 'type' | 'generation' | 'cells'>;
+
+  const toBlockSummary = (b: Block): BlockSummary => ({
+    x: b.x,
+    y: b.y,
+    generation: b.generation,
+    type: b.type === 'FULL' ? FULL : BORDER,
+    cells: base64ToBytes(b.encodedCells),
+  });
+
+  const blockList: BlockSummary[] = type === 'init'
+    ? (payload.data as Block[]).map(toBlockSummary)
     : readBlockFrame(new Uint8Array(payload.frame));
 
   for (const block of blockList) {
@@ -64,7 +72,6 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
       encodedBlocks.set(key, data);
       blockGenerationMap.set(key, block.generation);
     } else if (block.type === BORDER) {
-
       try {
         const seenBlockGeneration = blockGenerationMap.get(key)!;
         if (block.generation - seenBlockGeneration !== 1) {
@@ -264,7 +271,6 @@ function decodePooledImageData(packed: Uint8Array): ImageData {
 
 // Hot loops below live in small per-row functions: V8 then optimises them as ordinary calls
 // instead of on-stack-replacing a whole-block loop, which kept deoptimising on every inner exit.
-
 function colorPatchRow(counts: Uint16Array, pixels: Int32Array, start: number, size: number, cellsY: number, fullEdge: number, fullColors: Int32Array): void {
   const last = start + size - 1;
   if (cellsY === poolFactor) {
@@ -319,9 +325,8 @@ function countSmallPatchRows(packed: Uint8Array, counts: Uint16Array, byte0: num
 
 function countLargePatchRow(packed: Uint8Array, counts: Uint16Array, byte0: number, row: number, size: number, stride: number): void {
   const pf = poolFactor;
-  const n = blockSize;
   for (let px = 0, x0 = 0; px < size; px++, x0 += pf) {
-    const xEnd = Math.min(n, x0 + pf);
+    const xEnd = Math.min(blockSize, x0 + pf);
     let sum = 0;
     for (let x = x0, i = x0 * stride + byte0; x < xEnd; x++, i += stride) sum += POPCOUNT[packed[i]];
     counts[row + px] += sum;
@@ -422,7 +427,8 @@ function getBit(bits: Uint8Array, i: number): boolean {
 }
 
 function setBit(bits: Uint8Array, i: number, value: boolean): void {
-  if (value) bits[i >>> 3] |= 1 << (i & 7); else bits[i >>> 3] &= ~(1 << (i & 7));
+  if (value) bits[i >>> 3] |= 1 << (i & 7);
+  else bits[i >>> 3] &= ~(1 << (i & 7));
 }
 
 /**
