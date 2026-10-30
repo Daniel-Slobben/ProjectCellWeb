@@ -3,13 +3,18 @@
     <a class="w3-bar-item w3-button w3-padding-large"
        (click)="show('world')"
        [class.selected]="view() === 'world'">
-      World of Cells
+      World
     </a>
     <a class="w3-bar-item w3-button w3-padding-large"
        (click)="show('explanation')"
        [class.selected]="view() === 'explanation'">
       About
     </a>
+    @if (view() === 'world') {
+      <button class="w3-bar-item w3-button w3-padding-large disabled wrap">
+        x: {{viewCenter.x()}}<wbr> y:&nbsp;{{viewCenter.y()}}
+      </button>
+    }
   </div>
 </div>
 

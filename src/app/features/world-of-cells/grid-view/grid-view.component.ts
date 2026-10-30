@@ -4,7 +4,6 @@ import {
   Component,
   ElementRef,
   OnDestroy,
-  signal,
   ViewChild
 } from '@angular/core';
 import {HttpClient} from '@angular/common/http';
@@ -13,8 +12,16 @@ import { getKey } from './utils.component';
 import {Settings} from '../../../requests/incoming/Settings';
 import {ReconnectRequest} from '../../../requests/outgoing/ReconnectRequest';
 import {ReconnectResponse} from '../../../requests/incoming/ReconnectResponse';
+import {Coordinates} from '../../../requests/incoming/Coordinates';
 import {Subscription} from 'rxjs';
-import {ReloadIconComponent} from '../../../shared/icons/reload-icon.component';
+import {ViewCenter} from '../../../shared/view-center';
+import {ArrowIconComponent} from '../../../shared/icons/arrow-icon.component';
+
+interface View {
+  cellOffsetX: number;
+  cellOffsetY: number;
+  cellSize: number;
+}
 
 @Component({
   selector: 'grid-view',
@@ -22,13 +29,13 @@ import {ReloadIconComponent} from '../../../shared/icons/reload-icon.component';
   templateUrl: './grid-view.component.html',
   styleUrls: ['./grid-view.component.css'],
   changeDetection: ChangeDetectionStrategy.Eager,
-  imports: [ReloadIconComponent]
+  imports: [ArrowIconComponent]
 })
 export class GridViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   protected blockSize: number = 500;
-  private cellSize = 4;
+  private cellSize = 6;
   private readonly minCellSize: number = 0.1
   private readonly maxCellSize: number = 30;
   private readonly canvasWidth = window.screen.width;
@@ -37,8 +44,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   protected cellOffsetX = 0;
   protected cellOffsetY = 0;
 
-  protected readonly displayX = signal(0);
-  protected readonly displayY = signal(0);
+  // Visited views; Previous and Next step through them and fetch a new viewport past either end.
+  private readonly views: View[] = [];
+  private viewIndex = 0;
   private ctx!: CanvasRenderingContext2D;
 
   private drawnGeneration = 0;
@@ -66,7 +74,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private sessionDeadSubscription?: Subscription;
   private reconnectInFlight = false;
 
-  constructor(private readonly httpClient: HttpClient, private readonly blockService: BlockService) {
+  constructor(private readonly httpClient: HttpClient, private readonly blockService: BlockService,
+              private readonly viewCenter: ViewCenter) {
   }
 
   ngAfterViewInit() {
@@ -99,12 +108,43 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  protected loadSettings(): void {
+  private loadSettings(): void {
     this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
       this.blockSize = settings.blockSize;
       this.blockService.setup(settings.blockSize, settings.clientId, settings.blocks)
       this.centerOn(settings.viewport.x, settings.viewport.y);
     });
+  }
+
+  protected stepView(step: -1 | 1): void {
+    const target = this.viewIndex + step;
+    if (target >= 0 && target < this.views.length) {
+      this.saveView();
+      this.viewIndex = target;
+      ({cellOffsetX: this.cellOffsetX, cellOffsetY: this.cellOffsetY, cellSize: this.cellSize} = this.views[target]);
+      return;
+    }
+
+    this.httpClient.get<Coordinates>('/gen-api/viewport').subscribe((viewport) => {
+      this.saveView();
+      this.centerOn(viewport.x, viewport.y);
+      if (step === 1) {
+        this.views.push(this.currentView());
+        this.viewIndex = this.views.length - 1;
+      } else {
+        this.views.unshift(this.currentView());
+        this.viewIndex = 0;
+      }
+    });
+  }
+
+  // Keeps pans and zooms made since arriving at the current view.
+  private saveView(): void {
+    this.views[this.viewIndex] = this.currentView();
+  }
+
+  private currentView(): View {
+    return {cellOffsetX: this.cellOffsetX, cellOffsetY: this.cellOffsetY, cellSize: this.cellSize};
   }
 
   // A phone waking from standby often holds a socket that died without closing, so don't wait for the watchdog.
@@ -179,8 +219,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const centerCellX = Math.floor(this.cellOffsetX + (this.canvasWidth / this.cellSize) / 2);
     const centerCellY = Math.floor(this.cellOffsetY + (this.canvasHeight / this.cellSize) / 2);
 
-    this.displayX.set(centerCellX);
-    this.displayY.set(centerCellY);
+    this.viewCenter.x.set(centerCellX);
+    this.viewCenter.y.set(centerCellY);
 
     const startBlockX = Math.floor(this.cellOffsetX / this.blockSize);
     const startBlockY = Math.floor(this.cellOffsetY / this.blockSize);

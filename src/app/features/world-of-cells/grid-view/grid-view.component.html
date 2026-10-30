@@ -6,8 +6,10 @@
 </canvas>
 <div [class]="'w3-bottom'">
   <div class="w3-bar w3-black w3-card centered-nav">
-    <button class="w3-bar-item w3-button w3-padding-large disabled wrap">
-      x: {{displayX()}}<wbr> y:&nbsp;{{displayY()}}
+    <button class="w3-bar-item w3-button w3-padding-large"
+            (click)="stepView(-1)"
+            title="Previous">
+      <arrow-icon class="left"></arrow-icon>
     </button>
     @if (true) {
       <button class="w3-bar-item w3-button w3-padding-large"
@@ -17,9 +19,9 @@
       </button>
     }
     <button class="w3-bar-item w3-button w3-padding-large"
-            (click)="loadSettings()"
-            title="Reload">
-      <reload-icon></reload-icon>
+            (click)="stepView(1)"
+            title="Next">
+      <arrow-icon></arrow-icon>
     </button>
   </div>
 </div>

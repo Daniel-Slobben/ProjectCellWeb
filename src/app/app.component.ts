@@ -1,6 +1,7 @@
-import {Component, signal} from '@angular/core';
+import {Component, inject, signal} from '@angular/core';
 import {WorldOfCellsComponent} from './features/world-of-cells/world-of-cells.component';
 import {ExplanationComponent} from './features/explanation/explanation.component';
+import {ViewCenter} from './shared/view-center';
 
 type View = 'world' | 'explanation';
 
@@ -13,6 +14,7 @@ type View = 'world' | 'explanation';
 })
 export class AppComponent {
   readonly view = signal<View>('world');
+  protected readonly viewCenter = inject(ViewCenter);
 
   show(v: View) {
     this.view.set(v);
