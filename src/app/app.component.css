@@ -1,3 +1,4 @@
-.w3-button.wrap {
-  white-space: normal;
+.w3-button.coordinates {
+  white-space: nowrap;
+  font-size: min(1em, calc((100vw - 260px) / var(--coordinates-em)));
 }
