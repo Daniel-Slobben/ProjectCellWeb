@@ -35,7 +35,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   protected blockSize: number = 500;
-  private cellSize = 6;
+  private cellSize = 2.5;
   private readonly minCellSize: number = 0.1
   private readonly maxCellSize: number = 30;
   private readonly canvasWidth = window.screen.width;
