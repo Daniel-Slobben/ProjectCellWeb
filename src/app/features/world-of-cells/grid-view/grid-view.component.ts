@@ -279,11 +279,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private poolFactorForZoom(): number {
     // In physical pixels, matching the ratio the canvas is scaled by.
     const devicePixelsPerCell = this.cellSize * Math.ceil(window.devicePixelRatio);
-    if (devicePixelsPerCell >= 0.4) {
+    if (devicePixelsPerCell >= 1) {
       return 1;
     }
-    const steps = Math.floor(Math.log2(1 / devicePixelsPerCell));
-    return Math.pow(2, Math.max(0, steps));
+    // Never shrink a bitmap: each pooled pixel covers 1–2 device pixels, so fine patterns average to grey instead of moiré.
+    return Math.pow(2, Math.ceil(Math.log2(1 / devicePixelsPerCell)));
   }
 
   private readonly onClick = (e: MouseEvent) => {
