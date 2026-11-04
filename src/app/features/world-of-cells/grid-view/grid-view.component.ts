@@ -93,7 +93,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.ctx.canvas.style.height = `${this.canvasHeight}px`;
     this.ctx.canvas.getContext('2d')!.setTransform(ratio, 0, 0, ratio, 0, 0);
 
-    this.ctx.imageSmoothingEnabled = false;
+    this.ctx.imageSmoothingQuality = 'high';
 
     this.loadSettings();
 
@@ -264,8 +264,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const blockCanvasY = (baseY - this.cellOffsetY) * this.cellSize;
     const blockPixelSize = this.blockSize * this.cellSize;
 
-    this.ctx.imageSmoothingEnabled = this.cellSize * Math.ceil(window.devicePixelRatio) < 1;
-
+    // Between 1 and 2 device pixels per cell, nearest-neighbour makes cells 1 or 2 pixels wide, which
+    // turns fine patterns into bands. Below 1 the bitmap is pooled to 1-2 pixels per pooled cell.
+    this.ctx.imageSmoothingEnabled = this.devicePixelsPerCell() < 2;
     this.ctx.drawImage(imageData, blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
 
     if (this.drawBorders) {
@@ -276,14 +277,18 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  // In physical pixels, matching the ratio the canvas is scaled by.
+  private devicePixelsPerCell(): number {
+    return this.cellSize * Math.ceil(window.devicePixelRatio);
+  }
+
   private poolFactorForZoom(): number {
-    // In physical pixels, matching the ratio the canvas is scaled by.
-    const devicePixelsPerCell = this.cellSize * Math.ceil(window.devicePixelRatio);
-    if (devicePixelsPerCell >= 0.4) {
+    const devicePixelsPerCell = this.devicePixelsPerCell();
+    if (devicePixelsPerCell >= 1) {
       return 1;
     }
-    const steps = Math.floor(Math.log2(1 / devicePixelsPerCell));
-    return Math.pow(2, Math.max(0, steps));
+    // Never shrink a bitmap: each pooled pixel covers 1–2 device pixels, so fine patterns average to grey instead of moiré.
+    return Math.pow(2, Math.ceil(Math.log2(1 / devicePixelsPerCell)));
   }
 
   private readonly onClick = (e: MouseEvent) => {
