@@ -64,6 +64,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   protected drawBorders: boolean = false;
   protected smoothing: boolean = true;
+  protected darkMode: boolean = false;
 
   private animationFrameId?: number;
 
@@ -457,6 +458,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   protected toggleSmoothing() {
     this.smoothing = !this.smoothing;
+  }
+
+  protected toggleDarkMode() {
+    this.darkMode = !this.darkMode;
   }
 
 }

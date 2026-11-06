@@ -2,7 +2,8 @@
   #gridCanvas
   [style.border]="'1px solid #ccc'"
   [style.display]="'block'"
-  [style.background-color]="'white'">
+  [style.background-color]="'white'"
+  [style.filter]="darkMode ? 'invert(1)' : 'none'">
 </canvas>
 <div [class]="'w3-bottom'">
   <div class="w3-bar w3-black w3-card centered-nav">
@@ -21,6 +22,11 @@
               (click)="toggleSmoothing()"
               [class.selected]="smoothing">
         Smoothing
+      </button>
+      <button class="w3-bar-item w3-button w3-padding-large"
+              (click)="toggleDarkMode()"
+              [class.selected]="darkMode">
+        Dark
       </button>
     }
     <button class="w3-bar-item w3-button w3-padding-large"
