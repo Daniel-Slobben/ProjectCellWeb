@@ -17,6 +17,11 @@
               [class.selected]="drawBorders">
         Borders
       </button>
+      <button class="w3-bar-item w3-button w3-padding-large"
+              (click)="toggleSmoothing()"
+              [class.selected]="smoothing">
+        Smoothing
+      </button>
     }
     <button class="w3-bar-item w3-button w3-padding-large"
             (click)="stepView(1)"
