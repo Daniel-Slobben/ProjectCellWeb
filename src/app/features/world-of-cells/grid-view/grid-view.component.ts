@@ -111,7 +111,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private loadSettings(): void {
     this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
       this.blockSize = settings.blockSize;
-      this.blockService.setup(settings.blockSize, settings.clientId, settings.blocks)
+      this.blockService.setup(settings.blockSize, settings.clientId);
       this.centerOn(settings.viewport.x, settings.viewport.y);
     });
   }
@@ -168,7 +168,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.httpClient.post<ReconnectResponse>("/gen-api/reconnect", reconnectRequest).subscribe({
       next: (reconnectResponse) => {
         this.blockService.renewSocket();
-        this.blockService.setup(this.blockSize, reconnectResponse.clientId, []);
+        this.blockService.setup(this.blockSize, reconnectResponse.clientId);
         this.blockService.lastServerContact = new Date();
         if (reconnectResponse.viewport) {
           this.centerOn(reconnectResponse.viewport.x, reconnectResponse.viewport.y);
