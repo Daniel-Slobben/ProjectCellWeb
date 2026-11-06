@@ -1,6 +1,5 @@
 import {decompressBlock} from 'lz4js';
 import {getKey} from './utils.component';
-import {Block} from '../../../requests/incoming/Block';
 import {BORDER, FramedBlock, FULL, readBlockFrame} from './block-frame';
 
 let blockSize: number;
@@ -8,11 +7,9 @@ let blockSize: number;
 let poolFactor = 1;
 const densityGamma = 0.8;
 
-type BlockSummary = Pick<FramedBlock, 'x' | 'y' | 'type' | 'generation' | 'cells'>;
-
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
-const earlyBorders = new Map<string, BlockSummary[]>();
+const earlyBorders = new Map<string, FramedBlock[]>();
 // a safety cap, about 25 seconds of ticks
 const maxEarlyBorders = 50;
 
@@ -35,6 +32,7 @@ async function handleMessage({type, batchId, payload}: any): Promise<void> {
 async function decodeBatch(type: string, payload: any, results: any[]): Promise<void> {
   if (type === 'init') {
     blockSize = payload.blockSize;
+    return;
   }
   if (payload.poolFactor !== undefined) {
     poolFactor = payload.poolFactor;
@@ -60,19 +58,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     return;
   }
 
-  const toBlockSummary = (b: Block): BlockSummary => ({
-    x: b.x,
-    y: b.y,
-    generation: b.generation,
-    type: b.type === 'FULL' ? FULL : BORDER,
-    cells: base64ToBytes(b.encodedCells),
-  });
-
-  const blockList: BlockSummary[] = type === 'init'
-    ? (payload.data as Block[]).map(toBlockSummary)
-    : readBlockFrame(new Uint8Array(payload.frame));
-
-  for (const block of blockList) {
+  for (const block of readBlockFrame(new Uint8Array(payload.frame))) {
     const key = getKey(block.x, block.y);
 
     if (block.type === FULL) {
@@ -112,7 +98,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
 
 }
 
-function stepWithBorder(key: string, border: BlockSummary): void {
+function stepWithBorder(key: string, border: FramedBlock): void {
   const data = stepGameOfLife(encodedBlocks.get(key)!);
   writeBorder(border.cells, data);
   encodedBlocks.set(key, data);
@@ -123,7 +109,7 @@ function stepWithBorder(key: string, border: BlockSummary): void {
  * The full block sent for a client-update and the next tick's border go out separately, so the border can come in
  * first. Borders newer than the block we hold are kept, and applied once its full block has come in.
  */
-function keepEarlyBorder(key: string, border: BlockSummary, seenGeneration: number | undefined): void {
+function keepEarlyBorder(key: string, border: FramedBlock, seenGeneration: number | undefined): void {
   if (seenGeneration !== undefined && border.generation <= seenGeneration) return;
   const borders = earlyBorders.get(key) ?? [];
   // copied, so a kept border does not hold on to its whole frame
@@ -137,11 +123,11 @@ function keepEarlyBorder(key: string, border: BlockSummary, seenGeneration: numb
 }
 
 /** The kept borders that follow on from this generation, in order. */
-function takeEarlyBorders(key: string, generation: number): BlockSummary[] {
+function takeEarlyBorders(key: string, generation: number): FramedBlock[] {
   const borders = earlyBorders.get(key) ?? [];
   earlyBorders.delete(key);
   borders.sort((a, b) => a.generation - b.generation);
-  const following: BlockSummary[] = [];
+  const following: FramedBlock[] = [];
   for (const border of borders) {
     if (border.generation === generation + following.length + 1) following.push(border);
   }
@@ -454,19 +440,6 @@ function decodeLz4BlockToByteArray(compressedBytes: Uint8Array, blockSize: numbe
   decompressBlock(compressedBytes, packedBits, 0, compressedBytes.length, 0);
 
   return packedBits;
-}
-
-// Native in Chrome 140+, Firefox 133+ and Safari 18.2+, but not in the ES2022 lib yet.
-const nativeFromBase64 = (Uint8Array as unknown as {fromBase64?: (base64: string) => Uint8Array}).fromBase64?.bind(Uint8Array);
-
-function base64ToBytes(encodedCells: string) {
-  if (nativeFromBase64) return nativeFromBase64(encodedCells);
-  const binaryString = atob(encodedCells);
-  const compressedBytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    compressedBytes[i] = binaryString.codePointAt(i)!;
-  }
-  return compressedBytes;
 }
 
 function getBit(bits: Uint8Array, i: number): boolean {
