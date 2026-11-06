@@ -8,8 +8,13 @@ let blockSize: number;
 let poolFactor = 1;
 const densityGamma = 0.8;
 
+type BlockSummary = Pick<FramedBlock, 'x' | 'y' | 'type' | 'generation' | 'cells'>;
+
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
+const earlyBorders = new Map<string, BlockSummary[]>();
+// a safety cap, about 25 seconds of ticks
+const maxEarlyBorders = 50;
 
 let queue = Promise.resolve();
 
@@ -45,7 +50,15 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     return;
   }
 
-  type BlockSummary = Pick<FramedBlock, 'x' | 'y' | 'type' | 'generation' | 'cells'>;
+  if (type === 'forget') {
+    for (const {x, y} of payload.data) {
+      const key = getKey(x, y);
+      encodedBlocks.delete(key);
+      blockGenerationMap.delete(key);
+      earlyBorders.delete(key);
+    }
+    return;
+  }
 
   const toBlockSummary = (b: Block): BlockSummary => ({
     x: b.x,
@@ -63,18 +76,20 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     const key = getKey(block.x, block.y);
 
     if (block.type === FULL) {
-      const data = decodeLz4BlockToByteArray(block.cells, blockSize);
-      const image = decodeByteArrayToImageData(data);
-      const bitmap = await toBitmap(image);
+      encodedBlocks.set(key, decodeLz4BlockToByteArray(block.cells, blockSize));
+      blockGenerationMap.set(key, block.generation);
+      for (const border of takeEarlyBorders(key, block.generation)) {
+        stepWithBorder(key, border);
+      }
+      const bitmap = await toBitmap(decodeByteArrayToImageData(encodedBlocks.get(key)!));
 
       results.push({bitmap, x: block.x, y: block.y});
-
-      encodedBlocks.set(key, data);
-      blockGenerationMap.set(key, block.generation);
     } else if (block.type === BORDER) {
       try {
-        const seenBlockGeneration = blockGenerationMap.get(key)!;
-        if (block.generation - seenBlockGeneration !== 1) {
+        const seenBlockGeneration = blockGenerationMap.get(key);
+        if (seenBlockGeneration === undefined || block.generation - seenBlockGeneration !== 1) {
+          keepEarlyBorder(key, block, seenBlockGeneration);
+          if (seenBlockGeneration === undefined) continue;
           console.warn(`Saved Block Data is ${block.generation - seenBlockGeneration} generations behind Border Blocks. Has to be exactly 1.`);
           if (block.generation - seenBlockGeneration > 3) {
             results.push({error: true, x: block.x, y: block.y})
@@ -82,14 +97,10 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
           continue;
         }
 
-        const data = stepGameOfLife(encodedBlocks.get(key)!);
-        writeBorder(block.cells, data);
-        const image = decodeByteArrayToImageData(data);
-        const bitmap = await toBitmap(image);
+        stepWithBorder(key, block);
+        const bitmap = await toBitmap(decodeByteArrayToImageData(encodedBlocks.get(key)!));
 
         results.push({bitmap, x: block.x, y: block.y});
-        blockGenerationMap.set(key, block.generation);
-        encodedBlocks.set(key, data);
       } catch (e) {
         results.push({error: true, x: block.x, y: block.y})
         console.error(e);
@@ -99,6 +110,42 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     }
   }
 
+}
+
+function stepWithBorder(key: string, border: BlockSummary): void {
+  const data = stepGameOfLife(encodedBlocks.get(key)!);
+  writeBorder(border.cells, data);
+  encodedBlocks.set(key, data);
+  blockGenerationMap.set(key, border.generation);
+}
+
+/**
+ * The full block sent for a client-update and the next tick's border go out separately, so the border can come in
+ * first. Borders newer than the block we hold are kept, and applied once its full block has come in.
+ */
+function keepEarlyBorder(key: string, border: BlockSummary, seenGeneration: number | undefined): void {
+  if (seenGeneration !== undefined && border.generation <= seenGeneration) return;
+  const borders = earlyBorders.get(key) ?? [];
+  // copied, so a kept border does not hold on to its whole frame
+  borders.push({...border, cells: border.cells.slice()});
+  // its full block is not coming, so the borders are of no use
+  if (borders.length > maxEarlyBorders) {
+    earlyBorders.delete(key);
+    return;
+  }
+  earlyBorders.set(key, borders);
+}
+
+/** The kept borders that follow on from this generation, in order. */
+function takeEarlyBorders(key: string, generation: number): BlockSummary[] {
+  const borders = earlyBorders.get(key) ?? [];
+  earlyBorders.delete(key);
+  borders.sort((a, b) => a.generation - b.generation);
+  const following: BlockSummary[] = [];
+  for (const border of borders) {
+    if (border.generation === generation + following.length + 1) following.push(border);
+  }
+  return following;
 }
 
 let lifeSource = new Int32Array(0);
