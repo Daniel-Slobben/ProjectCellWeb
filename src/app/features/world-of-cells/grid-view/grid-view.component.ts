@@ -69,7 +69,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   public selectedBlock: { x: number; y: number } | null = null;
 
   // Ticks come every 500 ms, so a short silence means the socket is gone, even if it never closed.
-  private readonly reconnectThresholdMs = 1500;
+  private readonly reconnectThresholdMs = 4000;
   private watchdogInterval: ReturnType<typeof setInterval> | null = null;
   private sessionDeadSubscription?: Subscription;
   private reconnectInFlight = false;
@@ -111,7 +111,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private loadSettings(): void {
     this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
       this.blockSize = settings.blockSize;
-      this.blockService.setup(settings.blockSize, settings.clientId, settings.blocks)
+      this.blockService.setup(settings.blockSize, settings.clientId);
       this.centerOn(settings.viewport.x, settings.viewport.y);
     });
   }
@@ -168,13 +168,15 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.httpClient.post<ReconnectResponse>("/gen-api/reconnect", reconnectRequest).subscribe({
       next: (reconnectResponse) => {
         this.blockService.renewSocket();
-        this.blockService.setup(this.blockSize, reconnectResponse.clientId, []);
+        this.blockService.setup(this.blockSize, reconnectResponse.clientId);
         this.blockService.lastServerContact = new Date();
         if (reconnectResponse.viewport) {
           this.centerOn(reconnectResponse.viewport.x, reconnectResponse.viewport.y);
         }
         this.reconnectInFlight = false;
       }, error: () => {
+        // Wait a whole threshold before trying again, so clients don't keep hammering a server that is struggling.
+        this.blockService.lastServerContact = new Date();
         this.reconnectInFlight = false;
       }
     });
