@@ -93,7 +93,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.ctx.canvas.style.height = `${this.canvasHeight}px`;
     this.ctx.canvas.getContext('2d')!.setTransform(ratio, 0, 0, ratio, 0, 0);
 
-    this.ctx.imageSmoothingEnabled = false;
+    this.ctx.imageSmoothingQuality = 'high';
 
     this.loadSettings();
 
@@ -266,6 +266,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const blockCanvasY = (baseY - this.cellOffsetY) * this.cellSize;
     const blockPixelSize = this.blockSize * this.cellSize;
 
+    // Between 1 and 2 device pixels per cell, nearest-neighbour makes cells 1 or 2 pixels wide, which
+    // turns fine patterns into bands. Below 1 the bitmap is pooled to 1-2 pixels per pooled cell.
+    this.ctx.imageSmoothingEnabled = this.devicePixelsPerCell() < 2;
     // Edges on whole device pixels: a pixel shared by two blocks would be blended twice and show as a light line.
     const ratio = Math.ceil(window.devicePixelRatio);
     const snap = (v: number) => Math.round(v * ratio) / ratio;
