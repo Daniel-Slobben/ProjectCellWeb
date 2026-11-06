@@ -13,8 +13,8 @@ type BlockSummary = Pick<FramedBlock, 'x' | 'y' | 'type' | 'generation' | 'cells
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 const earlyBorders = new Map<string, BlockSummary[]>();
-// a few ticks
-const maxEarlyBorders = 4;
+// a safety cap, about 25 seconds of ticks
+const maxEarlyBorders = 50;
 
 let queue = Promise.resolve();
 
@@ -46,6 +46,16 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
       if (!data) continue;
       const bitmap = await toBitmap(decodeByteArrayToImageData(data));
       results.push({bitmap, x, y});
+    }
+    return;
+  }
+
+  if (type === 'forget') {
+    for (const {x, y} of payload.data) {
+      const key = getKey(x, y);
+      encodedBlocks.delete(key);
+      blockGenerationMap.delete(key);
+      earlyBorders.delete(key);
     }
     return;
   }
@@ -116,8 +126,13 @@ function stepWithBorder(key: string, border: BlockSummary): void {
 function keepEarlyBorder(key: string, border: BlockSummary, seenGeneration: number | undefined): void {
   if (seenGeneration !== undefined && border.generation <= seenGeneration) return;
   const borders = earlyBorders.get(key) ?? [];
-  borders.push(border);
-  if (borders.length > maxEarlyBorders) borders.shift();
+  // copied, so a kept border does not hold on to its whole frame
+  borders.push({...border, cells: border.cells.slice()});
+  // its full block is not coming, so the borders are of no use
+  if (borders.length > maxEarlyBorders) {
+    earlyBorders.delete(key);
+    return;
+  }
   earlyBorders.set(key, borders);
 }
 

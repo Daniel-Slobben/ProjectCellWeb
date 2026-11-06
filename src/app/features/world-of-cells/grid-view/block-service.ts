@@ -136,7 +136,7 @@ export class BlockService implements OnDestroy {
     this.dispatchToWorkers('rescale', visible.filter(({x, y}) => this.blockData.has(getKey(x, y))));
   }
 
-  private dispatchToWorkers(type: 'init' | 'rescale', blocks: Pick<Block, 'x' | 'y'>[]): void {
+  private dispatchToWorkers(type: 'init' | 'rescale' | 'forget', blocks: Pick<Block, 'x' | 'y'>[]): void {
     const perWorker: Pick<Block, 'x' | 'y'>[][] = this.workers.map(() => []);
     for (const block of blocks) {
       perWorker[workerIndex(block.x, block.y, this.workers.length)].push(block);
@@ -248,6 +248,14 @@ export class BlockService implements OnDestroy {
 
     this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest(this.clientId, toRemove, toAdd)));
     this.publishedBlocks = new Set(this.activeBlocks);
+
+    // Workers drop what they hold for removed blocks, so one that comes back starts over from its full block.
+    if (toRemove.length > 0) {
+      this.dispatchToWorkers('forget', toRemove.map((key) => {
+        const [x, y] = key.split('/').map(Number);
+        return {x, y};
+      }));
+    }
   }
 
   getBlock(key: string): ImageBitmap | undefined {
