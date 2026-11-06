@@ -69,7 +69,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   public selectedBlock: { x: number; y: number } | null = null;
 
   // Ticks come every 500 ms, so a short silence means the socket is gone, even if it never closed.
-  private readonly reconnectThresholdMs = 1500;
+  private readonly reconnectThresholdMs = 4000;
   private watchdogInterval: ReturnType<typeof setInterval> | null = null;
   private sessionDeadSubscription?: Subscription;
   private reconnectInFlight = false;
@@ -175,6 +175,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         }
         this.reconnectInFlight = false;
       }, error: () => {
+        // Wait a whole threshold before trying again, so clients don't keep hammering a server that is struggling.
+        this.blockService.lastServerContact = new Date();
         this.reconnectInFlight = false;
       }
     });
