@@ -2,8 +2,9 @@ import {Injectable, OnDestroy} from '@angular/core';
 import {ClientUpdateRequest} from '../../../requests/outgoing/ClientUpdateRequest';
 import {Subject} from 'rxjs';
 import {getKey, workerIndex} from './utils.component';
-import {Block} from '../../../requests/incoming/Block';
 import type {SocketCommand, SocketEvent} from './stomp.worker';
+
+type BlockPosition = {x: number, y: number};
 
 interface WorkerResult {
   bitmap?: ImageBitmap;
@@ -68,13 +69,13 @@ export class BlockService implements OnDestroy {
     return `${scheme}//${window.location.host}${path}`;
   }
 
-  public setup(blockSize: number, clientId: string, blocks: Block[]): void {
+  public setup(blockSize: number, clientId: string): void {
     this.teardownSession();
 
     this.blockSize = blockSize;
     this.clientId = clientId;
 
-    this.createWorkerPool(blocks);
+    this.createWorkerPool();
     this.sendToSocket({type: 'subscribe', clientId, workers: this.workers.length});
 
     this.healthCheckInterval = setInterval(() => {
@@ -114,7 +115,7 @@ export class BlockService implements OnDestroy {
     }
   }
 
-  private createWorkerPool(blocks: Block[]): void {
+  private createWorkerPool(): void {
     const cores = navigator.hardwareConcurrency || 4;
     const count = Math.max(1, Math.min(this.maxWorkers, cores - 1));
 
@@ -127,17 +128,17 @@ export class BlockService implements OnDestroy {
       this.workers.push(worker);
     }
 
-    this.dispatchToWorkers('init', blocks);
+    this.dispatchToWorkers('init', []);
   }
 
-  setPoolFactor(factor: number, visible: Pick<Block, 'x' | 'y'>[]): void {
+  setPoolFactor(factor: number, visible: BlockPosition[]): void {
     if (factor === this.poolFactor) return;
     this.poolFactor = factor;
     this.dispatchToWorkers('rescale', visible.filter(({x, y}) => this.blockData.has(getKey(x, y))));
   }
 
-  private dispatchToWorkers(type: 'init' | 'rescale' | 'forget', blocks: Pick<Block, 'x' | 'y'>[]): void {
-    const perWorker: Pick<Block, 'x' | 'y'>[][] = this.workers.map(() => []);
+  private dispatchToWorkers(type: 'init' | 'rescale' | 'forget', blocks: BlockPosition[]): void {
+    const perWorker: BlockPosition[][] = this.workers.map(() => []);
     for (const block of blocks) {
       perWorker[workerIndex(block.x, block.y, this.workers.length)].push(block);
     }
@@ -145,7 +146,7 @@ export class BlockService implements OnDestroy {
     this.postBatch(perWorker.map((data) => ({type, data})));
   }
 
-  private postBatch(messages: ({type: string, data?: Pick<Block, 'x' | 'y'>[], frame?: ArrayBuffer} | null)[]): void {
+  private postBatch(messages: ({type: string, data?: BlockPosition[], frame?: ArrayBuffer} | null)[]): void {
     const batchId = ++this.lastBatchId;
     const batch: PendingBatch = {id: batchId, pending: 0, results: []};
 
