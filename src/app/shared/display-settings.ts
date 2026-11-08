@@ -6,14 +6,20 @@ export interface Theme {
   dead: string;
 }
 
+// Two per row in the menu: a light theme, then its dark sibling. Alive and dead share a hue and differ in
+// lightness, the pairs people like best, at a contrast around 9-15:1 rather than the harsher 21:1 of Classic.
+// Paper and Amber set a cool colour against a warm one instead, which people also like as figure on ground.
 export const THEMES: Theme[] = [
   {name: 'Classic', alive: '#000000', dead: '#ffffff'},
+  {name: 'Night', alive: '#e6e6e6', dead: '#121212'},
   {name: 'Ocean', alive: '#0b3d91', dead: '#e6f2ff'},
-  {name: 'Forest', alive: '#1b5e20', dead: '#f1f8e9'},
-  {name: 'Night', alive: '#ffffff', dead: '#000000'},
   {name: 'Deep Sea', alive: '#7fb3ff', dead: '#06142e'},
-  {name: 'Matrix', alive: '#00ff41', dead: '#0d0208'},
-  {name: 'Amber', alive: '#ffb000', dead: '#1a1200'},
+  {name: 'Forest', alive: '#0d5117', dead: '#ecf9ee'},
+  {name: 'Matrix', alive: '#00ff41', dead: '#041107'},
+  {name: 'Paper', alive: '#002b36', dead: '#fdf6e3'},
+  {name: 'Amber', alive: '#ffb000', dead: '#191724'},
+  {name: 'Lavender', alive: '#4f2980', dead: '#f6f3fe'},
+  {name: 'Dusk', alive: '#cba6f7', dead: '#11111b'},
 ];
 
 const storageKey = 'display-settings';
@@ -31,11 +37,13 @@ export class DisplaySettings {
   readonly smoothing = signal(true);
   readonly alive = signal(THEMES[0].alive);
   readonly dead = signal(THEMES[0].dead);
+  // Zoomed out, how far a patch's share of alive cells moves it towards the alive colour: lower shows sparse life more.
+  readonly gamma = signal(0.8);
 
   constructor() {
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
-      for (const name of ['borders', 'smoothing', 'alive', 'dead'] as const) {
+      for (const name of ['borders', 'smoothing', 'alive', 'dead', 'gamma'] as const) {
         if (saved[name] !== undefined) (this[name] as any).set(saved[name]);
       }
     } catch {
@@ -52,7 +60,7 @@ export class DisplaySettings {
 
       const settings = {
         borders: this.borders(), smoothing: this.smoothing(),
-        alive: this.alive(), dead: this.dead(),
+        alive: this.alive(), dead: this.dead(), gamma: this.gamma(),
       };
       try {
         localStorage.setItem(storageKey, JSON.stringify(settings));

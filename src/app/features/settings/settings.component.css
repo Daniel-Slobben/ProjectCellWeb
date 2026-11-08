@@ -69,3 +69,42 @@ input[type="color"] {
 input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
 input[type="color"]::-webkit-color-swatch { border: none; }
 input[type="color"]::-moz-color-swatch { border: none; }
+
+/* A flat track with a square thumb, both in the text colour. */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  color: inherit;
+  background: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track { height: 2px; background: currentColor; }
+input[type="range"]::-moz-range-track { height: 2px; background: currentColor; }
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 18px;
+  margin-top: -8px;
+  border: none;
+  border-radius: 0;
+  background: currentColor;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 10px;
+  height: 18px;
+  border: none;
+  border-radius: 0;
+  background: currentColor;
+}
+
+.value {
+  min-width: 3ch;
+  text-align: right;
+}

@@ -243,7 +243,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       }
     }
     this.blockService.updateVisible(currentVisibleBlocks);
-    this.blockService.setRendering(this.poolFactorForZoom(), this.settings.alive(), this.settings.dead(), drawnBlocks);
+    this.blockService.setRendering({
+      poolFactor: this.poolFactorForZoom(), alive: this.settings.alive(), dead: this.settings.dead(), gamma: this.settings.gamma(),
+    }, drawnBlocks);
 
     if (this.selectedBlock != undefined) {
       const offscreen = document.createElement('canvas');

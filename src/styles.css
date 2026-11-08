@@ -70,7 +70,10 @@ button, input, select, textarea, optgroup { font: inherit; margin: 0; }
   user-select: none;
 }
 
-.w3-button:hover { color: var(--bar) !important; background-color: var(--highlight) !important; }
+/* Only where there is a real pointer: on touch screens :hover sticks to the last button tapped. */
+@media (hover: hover) {
+  .w3-button:hover { color: var(--bar) !important; background-color: var(--highlight) !important; }
+}
 
 .w3-padding-large { padding: 12px 24px !important; }
 

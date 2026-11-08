@@ -5,7 +5,7 @@ import {BORDER, FramedBlock, FULL, readBlockFrame} from './block-frame';
 let blockSize: number;
 
 let poolFactor = 1;
-const densityGamma = 0.8;
+let densityGamma = 0.8;
 
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
@@ -36,8 +36,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
   }
   if (payload.poolFactor !== undefined) {
     poolFactor = payload.poolFactor;
-  }
-  if (payload.alive !== undefined) {
+    densityGamma = payload.gamma;
     ALIVE = pixelOf(payload.alive);
     DEAD = pixelOf(payload.dead);
   }

@@ -6,6 +6,14 @@ import type {SocketCommand, SocketEvent} from './stomp.worker';
 
 type BlockPosition = {x: number, y: number};
 
+/** How the workers draw a block. */
+export interface Rendering {
+  poolFactor: number;
+  alive: string;
+  dead: string;
+  gamma: number;
+}
+
 interface WorkerResult {
   bitmap?: ImageBitmap;
   error?: boolean;
@@ -33,9 +41,7 @@ export class BlockService implements OnDestroy {
   private readonly maxWorkers = 8;
   private pendingBatches: PendingBatch[] = [];
   private lastBatchId = 0;
-  private poolFactor = 1;
-  private alive = '#000000';
-  private dead = '#ffffff';
+  private rendering: Rendering = {poolFactor: 1, alive: '#000000', dead: '#ffffff', gamma: 0.8};
   private blockSize = 0;
   public clientId = '';
 
@@ -133,11 +139,10 @@ export class BlockService implements OnDestroy {
     this.dispatchToWorkers('init', []);
   }
 
-  setRendering(poolFactor: number, alive: string, dead: string, visible: BlockPosition[]): void {
-    if (poolFactor === this.poolFactor && alive === this.alive && dead === this.dead) return;
-    this.poolFactor = poolFactor;
-    this.alive = alive;
-    this.dead = dead;
+  setRendering(rendering: Rendering, visible: BlockPosition[]): void {
+    const {poolFactor, alive, dead, gamma} = this.rendering;
+    if (rendering.poolFactor === poolFactor && rendering.alive === alive && rendering.dead === dead && rendering.gamma === gamma) return;
+    this.rendering = rendering;
     this.dispatchToWorkers('rescale', visible.filter(({x, y}) => this.blockData.has(getKey(x, y))));
   }
 
@@ -159,7 +164,7 @@ export class BlockService implements OnDestroy {
       batch.pending++;
       const {type, data, frame} = message;
       this.workers[i].postMessage(
-        {type, batchId, payload: {blockSize: this.blockSize, poolFactor: this.poolFactor, alive: this.alive, dead: this.dead, data, frame}},
+        {type, batchId, payload: {blockSize: this.blockSize, ...this.rendering, data, frame}},
         frame ? [frame] : [],
       );
     });
