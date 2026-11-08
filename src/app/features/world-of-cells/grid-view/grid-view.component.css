@@ -4,3 +4,14 @@
   background-color: transparent !important;
   outline: none;
 }
+
+.step {
+  padding: 16px 64px !important;
+}
+
+/* On a phone each arrow takes half the bar, so it is easy to hit. */
+@media (max-width: 600px) {
+  .step {
+    flex: 1;
+  }
+}

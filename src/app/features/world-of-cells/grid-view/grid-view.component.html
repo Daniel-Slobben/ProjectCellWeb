@@ -1,17 +1,17 @@
 <canvas
   #gridCanvas
-  [style.border]="'1px solid #ccc'"
+  [style.border]="'1px solid color-mix(in srgb, var(--dead) 80%, var(--alive))'"
   [style.display]="'block'"
   [style.background-color]="settings.dead()">
 </canvas>
 <div [class]="'w3-bottom'">
   <div class="w3-bar w3-black w3-card centered-nav">
-    <button class="w3-bar-item w3-button w3-padding-large"
+    <button class="w3-bar-item w3-button w3-padding-large step"
             (click)="stepView(-1)"
             title="Previous">
       <arrow-icon class="left"></arrow-icon>
     </button>
-    <button class="w3-bar-item w3-button w3-padding-large"
+    <button class="w3-bar-item w3-button w3-padding-large step"
             (click)="stepView(1)"
             title="Next">
       <arrow-icon></arrow-icon>

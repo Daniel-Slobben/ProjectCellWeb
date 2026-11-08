@@ -8,6 +8,6 @@
   left: 50%;
   transform: translateX(-50%);
   width: min(360px, 100vw);
-  color: var(--dead);
-  background-color: var(--alive);
+  color: var(--bar-text);
+  background-color: var(--bar);
 }

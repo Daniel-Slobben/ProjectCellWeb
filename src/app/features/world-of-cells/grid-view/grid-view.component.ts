@@ -276,7 +276,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     if (this.settings.borders()) {
       this.ctx.lineWidth = 1;
-      this.ctx.strokeStyle = 'rgba(128, 128, 128, 255)';
+      // The alive colour at half opacity: the old grey on the Classic theme.
+      this.ctx.strokeStyle = this.settings.alive() + '80';
 
       this.ctx.strokeRect(blockCanvasX, blockCanvasY, blockPixelSize, blockPixelSize);
     }

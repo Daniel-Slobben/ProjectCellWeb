@@ -18,6 +18,12 @@ export const THEMES: Theme[] = [
 
 const storageKey = 'display-settings';
 
+/** Perceived brightness of '#rrggbb', 0 to 255. */
+function brightness(hex: string): number {
+  const rgb = parseInt(hex.slice(1), 16);
+  return 0.299 * (rgb >> 16) + 0.587 * ((rgb >> 8) & 0xff) + 0.114 * (rgb & 0xff);
+}
+
 /** How the grid is drawn, set in the Settings menu and kept in the browser between visits. */
 @Injectable({providedIn: 'root'})
 export class DisplaySettings {
@@ -40,6 +46,9 @@ export class DisplaySettings {
       const root = document.documentElement.style;
       root.setProperty('--alive', this.alive());
       root.setProperty('--dead', this.dead());
+      const darkDead = brightness(this.dead()) < brightness(this.alive());
+      root.setProperty('--bar', darkDead ? 'var(--dead)' : 'var(--alive)');
+      root.setProperty('--bar-text', darkDead ? 'var(--alive)' : 'var(--dead)');
 
       const settings = {
         borders: this.borders(), smoothing: this.smoothing(),

@@ -6,7 +6,10 @@ html {
   /* Set from the chosen theme, see DisplaySettings. */
   --alive: #000000;
   --dead: #ffffff;
-  --highlight: color-mix(in srgb, var(--dead) 80%, var(--alive));
+  /* The bars take the darker of the two colours. */
+  --bar: var(--alive);
+  --bar-text: var(--dead);
+  --highlight: color-mix(in srgb, var(--bar-text) 80%, var(--bar));
 }
 *, *:before, *:after { box-sizing: inherit; }
 
@@ -45,7 +48,7 @@ button, input, select, textarea, optgroup { font: inherit; margin: 0; }
 
 .w3-bar .w3-button { white-space: normal; }
 
-.w3-black { color: var(--dead) !important; background-color: var(--alive) !important; }
+.w3-black { color: var(--bar-text) !important; background-color: var(--bar) !important; }
 
 .w3-card {
   box-shadow: 0 2px 5px 0 rgba(0, 0, 0, 0.16), 0 2px 10px 0 rgba(0, 0, 0, 0.12);
@@ -67,7 +70,7 @@ button, input, select, textarea, optgroup { font: inherit; margin: 0; }
   user-select: none;
 }
 
-.w3-button:hover { color: var(--alive) !important; background-color: var(--highlight) !important; }
+.w3-button:hover { color: var(--bar) !important; background-color: var(--highlight) !important; }
 
 .w3-padding-large { padding: 12px 24px !important; }
 
@@ -78,6 +81,6 @@ button, input, select, textarea, optgroup { font: inherit; margin: 0; }
 }
 
 .w3-button.selected {
-  color: var(--alive) !important;
+  color: var(--bar) !important;
   background-color: var(--highlight) !important;
 }
