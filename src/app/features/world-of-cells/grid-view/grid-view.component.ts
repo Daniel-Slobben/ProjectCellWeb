@@ -16,6 +16,7 @@ import {Coordinates} from '../../../requests/incoming/Coordinates';
 import {Subscription} from 'rxjs';
 import {ViewCenter} from '../../../shared/view-center';
 import {ArrowIconComponent} from '../../../shared/icons/arrow-icon.component';
+import {DisplaySettings} from '../../../shared/display-settings';
 
 interface View {
   cellOffsetX: number;
@@ -62,10 +63,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private isPinching = false;
   private lastTouchDistance = 0;
 
-  protected drawBorders: boolean = false;
-  protected smoothing: boolean = true;
-  protected darkMode: boolean = false;
-
   private animationFrameId?: number;
 
   public selectedBlock: { x: number; y: number } | null = null;
@@ -77,7 +74,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private reconnectInFlight = false;
 
   constructor(private readonly httpClient: HttpClient, private readonly blockService: BlockService,
-              private readonly viewCenter: ViewCenter) {
+              private readonly viewCenter: ViewCenter, protected readonly settings: DisplaySettings) {
   }
 
   ngAfterViewInit() {
@@ -246,7 +243,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       }
     }
     this.blockService.updateVisible(currentVisibleBlocks);
-    this.blockService.setPoolFactor(this.poolFactorForZoom(), drawnBlocks);
+    this.blockService.setRendering(this.poolFactorForZoom(), this.settings.alive(), this.settings.dead(), drawnBlocks);
 
     if (this.selectedBlock != undefined) {
       const offscreen = document.createElement('canvas');
@@ -270,14 +267,14 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     // Between 1 and 2 device pixels per cell, nearest-neighbour makes cells 1 or 2 pixels wide, which
     // turns fine patterns into bands. Below 1 the bitmap is pooled to 1-2 pixels per pooled cell.
-    this.ctx.imageSmoothingEnabled = this.smoothing && this.devicePixelsPerCell() < 2;
+    this.ctx.imageSmoothingEnabled = this.settings.smoothing() && this.devicePixelsPerCell() < 2;
     // Edges on whole device pixels: a pixel shared by two blocks would be blended twice and show as a light line.
     const ratio = Math.ceil(window.devicePixelRatio);
     const snap = (v: number) => Math.round(v * ratio) / ratio;
     const left = snap(blockCanvasX), top = snap(blockCanvasY);
     this.ctx.drawImage(imageData, left, top, snap(blockCanvasX + blockPixelSize) - left, snap(blockCanvasY + blockPixelSize) - top);
 
-    if (this.drawBorders) {
+    if (this.settings.borders()) {
       this.ctx.lineWidth = 1;
       this.ctx.strokeStyle = 'rgba(128, 128, 128, 255)';
 
@@ -451,18 +448,4 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.cellOffsetX = worldX - (this.canvasWidth / this.cellSize) / 2;
     this.cellOffsetY = worldY - (this.canvasHeight / this.cellSize) / 2;
   }
-
-  protected toggleBlockBorders() {
-    this.drawBorders = !this.drawBorders;
-  }
-
-  protected toggleSmoothing() {
-    this.smoothing = !this.smoothing;
-  }
-
-  protected toggleDarkMode() {
-    this.darkMode = !this.darkMode;
-  }
-
 }
-

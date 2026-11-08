@@ -37,6 +37,10 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
   if (payload.poolFactor !== undefined) {
     poolFactor = payload.poolFactor;
   }
+  if (payload.alive !== undefined) {
+    ALIVE = pixelOf(payload.alive);
+    DEAD = pixelOf(payload.dead);
+  }
 
   if (type === 'rescale') {
     for (const {x, y} of payload.data) {
@@ -241,7 +245,20 @@ function unpackRow(row: Int32Array, target: Int32Array, x: number): void {
   }
 }
 
-const BLACK = Math.trunc(0xff000000); // R = G = B = 0, A = 255
+const OPAQUE = Math.trunc(0xff000000); // A = 255
+let ALIVE = OPAQUE;
+let DEAD = -1;
+
+/** '#rrggbb' as an opaque pixel, little-endian like the ImageData buffer: R in the low byte. */
+function pixelOf(hex: string): number {
+  const rgb = parseInt(hex.slice(1), 16);
+  return OPAQUE | ((rgb & 0xff) << 16) | (rgb & 0xff00) | (rgb >> 16);
+}
+
+/** The dead colour for 0, the alive colour for 1. */
+function cellPixel(bit: number): number {
+  return DEAD ^ (-bit & (ALIVE ^ DEAD));
+}
 const POPCOUNT = new Uint8Array(256).map((_, b) => {
   let n = 0;
   for (let v = b; v; v &= v - 1) n++;
@@ -292,7 +309,7 @@ function decodePooledImageData(packed: Uint8Array): ImageData {
   // Every full patch has the same denominator, so its colours come from a table.
   const fullPatch = poolFactor * poolFactor;
   const fullColors = new Int32Array(fullPatch + 1);
-  for (let n = 0; n <= fullPatch; n++) fullColors[n] = grayPixel(n / fullPatch);
+  for (let n = 0; n <= fullPatch; n++) fullColors[n] = densityPixel(n / fullPatch);
 
   // counts is row-major like the pixels: counts[py * size + px].
   for (let py = 0; py < size; py++) {
@@ -309,14 +326,20 @@ function colorPatchRow(counts: Uint16Array, pixels: Int32Array, start: number, s
   if (cellsY === poolFactor) {
     for (let i = start; i < last; i++) pixels[i] = fullColors[counts[i]];
   } else {
-    for (let i = start; i < last; i++) pixels[i] = grayPixel(counts[i] / (poolFactor * cellsY));
+    for (let i = start; i < last; i++) pixels[i] = densityPixel(counts[i] / (poolFactor * cellsY));
   }
-  pixels[last] = grayPixel(counts[last] / (fullEdge * cellsY));
+  pixels[last] = densityPixel(counts[last] / (fullEdge * cellsY));
 }
 
-function grayPixel(density: number): number {
-  const color = Math.round(255 * (1 - Math.pow(density, densityGamma)));
-  return BLACK | (color << 16) | (color << 8) | color;
+/** Between the dead and the alive colour, by the share of alive cells. */
+function densityPixel(density: number): number {
+  const t = Math.pow(density, densityGamma);
+  let pixel = OPAQUE;
+  for (let shift = 0; shift < 24; shift += 8) {
+    const dead = (DEAD >> shift) & 0xff, alive = (ALIVE >> shift) & 0xff;
+    pixel |= Math.round(dead + (alive - dead) * t) << shift;
+  }
+  return pixel;
 }
 
 /**
@@ -410,14 +433,14 @@ function transposeTileRow(packed: Uint8Array, pixels: Int32Array, y0: number): v
     const c0 = packed[i], c1 = packed[i += stride], c2 = packed[i += stride], c3 = packed[i += stride];
     const c4 = packed[i += stride], c5 = packed[i += stride], c6 = packed[i += stride], c7 = packed[i += stride];
     for (let k = 0, p = y0 * n + x0; k < 8; k++, p += n) {
-      pixels[p] = (((c0 >> k) & 1) - 1) | BLACK;
-      pixels[p + 1] = (((c1 >> k) & 1) - 1) | BLACK;
-      pixels[p + 2] = (((c2 >> k) & 1) - 1) | BLACK;
-      pixels[p + 3] = (((c3 >> k) & 1) - 1) | BLACK;
-      pixels[p + 4] = (((c4 >> k) & 1) - 1) | BLACK;
-      pixels[p + 5] = (((c5 >> k) & 1) - 1) | BLACK;
-      pixels[p + 6] = (((c6 >> k) & 1) - 1) | BLACK;
-      pixels[p + 7] = (((c7 >> k) & 1) - 1) | BLACK;
+      pixels[p] = cellPixel((c0 >> k) & 1);
+      pixels[p + 1] = cellPixel((c1 >> k) & 1);
+      pixels[p + 2] = cellPixel((c2 >> k) & 1);
+      pixels[p + 3] = cellPixel((c3 >> k) & 1);
+      pixels[p + 4] = cellPixel((c4 >> k) & 1);
+      pixels[p + 5] = cellPixel((c5 >> k) & 1);
+      pixels[p + 6] = cellPixel((c6 >> k) & 1);
+      pixels[p + 7] = cellPixel((c7 >> k) & 1);
     }
   }
 }
@@ -430,7 +453,7 @@ function transposeByCell(packed: Uint8Array, pixels: Int32Array): void {
 function transposeColumn(packed: Uint8Array, pixels: Int32Array, x: number): void {
   const n = blockSize;
   for (let y = 0, bit = x * n, p = x; y < n; y++, bit++, p += n) {
-    pixels[p] = (((packed[bit >>> 3] >> (bit & 7)) & 1) - 1) | BLACK;
+    pixels[p] = cellPixel((packed[bit >>> 3] >> (bit & 7)) & 1);
   }
 }
 
