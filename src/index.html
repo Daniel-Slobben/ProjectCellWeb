@@ -1,10 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>World of Cells</title>
+  <title>World of Cells – one shared, endless Game of Life</title>
   <meta charset="UTF-8">
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="World of Cells runs Conway's Game of Life on an endless grid, live on a server. Everyone looking at the same coordinates sees the same cells, at the same moment.">
+  <link rel="canonical" href="https://world-of-cells.net/">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://world-of-cells.net/">
+  <meta property="og:title" content="World of Cells">
+  <meta property="og:description" content="Conway's Game of Life on an endless grid, live on a server and shared by everyone watching.">
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "World of Cells",
+      "url": "https://world-of-cells.net/",
+      "applicationCategory": "GameApplication",
+      "operatingSystem": "Any",
+      "description": "A simulation of Conway's Game of Life on an endless grid of cells, each alive or dead. A dead cell with exactly 3 live neighbours comes alive; a live cell with 2 or 3 live neighbours stays alive. The simulation runs on a server, so everyone looking at the same coordinates sees the same cells at the same moment."
+    }
+  </script>
 </head>
 <body>
   <app-root></app-root>

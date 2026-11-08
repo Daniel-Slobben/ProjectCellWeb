@@ -34,6 +34,8 @@ export class BlockService implements OnDestroy {
   private pendingBatches: PendingBatch[] = [];
   private lastBatchId = 0;
   private poolFactor = 1;
+  private alive = '#000000';
+  private dead = '#ffffff';
   private blockSize = 0;
   public clientId = '';
 
@@ -131,9 +133,11 @@ export class BlockService implements OnDestroy {
     this.dispatchToWorkers('init', []);
   }
 
-  setPoolFactor(factor: number, visible: BlockPosition[]): void {
-    if (factor === this.poolFactor) return;
-    this.poolFactor = factor;
+  setRendering(poolFactor: number, alive: string, dead: string, visible: BlockPosition[]): void {
+    if (poolFactor === this.poolFactor && alive === this.alive && dead === this.dead) return;
+    this.poolFactor = poolFactor;
+    this.alive = alive;
+    this.dead = dead;
     this.dispatchToWorkers('rescale', visible.filter(({x, y}) => this.blockData.has(getKey(x, y))));
   }
 
@@ -155,7 +159,7 @@ export class BlockService implements OnDestroy {
       batch.pending++;
       const {type, data, frame} = message;
       this.workers[i].postMessage(
-        {type, batchId, payload: {blockSize: this.blockSize, poolFactor: this.poolFactor, data, frame}},
+        {type, batchId, payload: {blockSize: this.blockSize, poolFactor: this.poolFactor, alive: this.alive, dead: this.dead, data, frame}},
         frame ? [frame] : [],
       );
     });
