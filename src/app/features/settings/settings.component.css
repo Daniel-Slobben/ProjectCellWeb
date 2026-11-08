@@ -1,0 +1,71 @@
+:host {
+  display: block;
+  padding-bottom: 8px;
+}
+
+.section {
+  padding: 12px 24px 4px;
+  font-size: 0.8em;
+  opacity: 0.6;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 24px;
+  text-align: left;
+}
+
+.themes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+/* A pixel checkbox, filled when on. */
+.box {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid currentColor;
+}
+
+.box.on {
+  background-color: currentColor;
+  box-shadow: inset 0 0 0 2px var(--alive);
+}
+
+.w3-button:hover .box.on {
+  box-shadow: inset 0 0 0 2px var(--highlight);
+}
+
+/* Four cells of the theme, two alive and two dead. */
+.swatch {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  outline: 2px solid currentColor;
+  background: conic-gradient(
+    var(--swatch-alive) 0 25%, var(--swatch-dead) 0 50%,
+    var(--swatch-alive) 0 75%, var(--swatch-dead) 0);
+}
+
+input[type="color"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  padding: 0;
+  border: none;
+  /* Form controls don't inherit the text colour on their own. */
+  color: inherit;
+  outline: 2px solid currentColor;
+  background: none;
+  cursor: pointer;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+input[type="color"]::-webkit-color-swatch { border: none; }
+input[type="color"]::-moz-color-swatch { border: none; }

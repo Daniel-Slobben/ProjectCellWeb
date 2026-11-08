@@ -1,0 +1,31 @@
+<div class="section">Display</div>
+<button class="w3-button row" (click)="settings.borders.set(!settings.borders())">
+  <span class="box" [class.on]="settings.borders()"></span> Borders
+</button>
+<button class="w3-button row" (click)="settings.smoothing.set(!settings.smoothing())">
+  <span class="box" [class.on]="settings.smoothing()"></span> Smoothing
+</button>
+
+<div class="section">Theme</div>
+<div class="themes">
+  @for (theme of themes; track theme.name) {
+    <button class="w3-button row"
+            [class.selected]="theme.alive === settings.alive() && theme.dead === settings.dead()"
+            (click)="settings.applyTheme(theme)">
+      <span class="swatch" [style.--swatch-alive]="theme.alive" [style.--swatch-dead]="theme.dead"></span>
+      {{ theme.name }}
+    </button>
+  }
+</div>
+
+<div class="section">Custom</div>
+<div class="themes">
+  <label class="w3-button row">
+    <input type="color" [value]="settings.alive()" (input)="settings.alive.set($any($event.target).value)">
+    Alive
+  </label>
+  <label class="w3-button row">
+    <input type="color" [value]="settings.dead()" (input)="settings.dead.set($any($event.target).value)">
+    Dead
+  </label>
+</div>
