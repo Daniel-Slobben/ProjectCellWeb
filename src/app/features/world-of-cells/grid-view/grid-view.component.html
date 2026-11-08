@@ -2,8 +2,7 @@
   #gridCanvas
   [style.border]="'1px solid #ccc'"
   [style.display]="'block'"
-  [style.background-color]="'white'"
-  [style.filter]="darkMode ? 'invert(1)' : 'none'">
+  [style.background-color]="settings.dead()">
 </canvas>
 <div [class]="'w3-bottom'">
   <div class="w3-bar w3-black w3-card centered-nav">
@@ -12,23 +11,6 @@
             title="Previous">
       <arrow-icon class="left"></arrow-icon>
     </button>
-    @if (true) {
-      <button class="w3-bar-item w3-button w3-padding-large"
-              (click)="toggleBlockBorders()"
-              [class.selected]="drawBorders">
-        Borders
-      </button>
-      <button class="w3-bar-item w3-button w3-padding-large"
-              (click)="toggleSmoothing()"
-              [class.selected]="smoothing">
-        Smoothing
-      </button>
-      <button class="w3-bar-item w3-button w3-padding-large"
-              (click)="toggleDarkMode()"
-              [class.selected]="darkMode">
-        Dark
-      </button>
-    }
     <button class="w3-bar-item w3-button w3-padding-large"
             (click)="stepView(1)"
             title="Next">

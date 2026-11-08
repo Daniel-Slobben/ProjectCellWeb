@@ -1,25 +1,19 @@
 <div [class]="'w3-top'">
   <div class="w3-bar w3-black w3-card centered-nav">
-    <a class="w3-bar-item w3-button w3-padding-large"
-       (click)="show('world')"
-       [class.selected]="view() === 'world'">
-      World
-    </a>
-    <a class="w3-bar-item w3-button w3-padding-large"
-       (click)="show('explanation')"
-       [class.selected]="view() === 'explanation'">
-      About
-    </a>
-    @if (view() === 'world') {
-      <button class="w3-bar-item w3-button w3-padding-large disabled coordinates"
-              [style.--coordinates-em]="coordinatesEm()">
-        x: {{viewCenter.x()}} y: {{viewCenter.y()}}
-      </button>
-    }
+    <button class="w3-bar-item w3-button w3-padding-large disabled coordinates"
+            [style.--coordinates-em]="coordinatesEm()">
+      x: {{viewCenter.x()}} y: {{viewCenter.y()}}
+    </button>
+    <button class="w3-bar-item w3-button w3-padding-large"
+            (click)="settingsOpen.set(!settingsOpen())"
+            [class.selected]="settingsOpen()"
+            title="Settings" aria-label="Settings">
+      <gear-icon></gear-icon>
+    </button>
   </div>
+  @if (settingsOpen()) {
+    <app-settings class="dropdown w3-card"></app-settings>
+  }
 </div>
 
-<app-world-of-cells [hidden]="view() !== 'world'"></app-world-of-cells>
-@if (view() === 'explanation') {
-  <app-explanation></app-explanation>
-}
+<app-world-of-cells (pointerdown)="settingsOpen.set(false)"></app-world-of-cells>
