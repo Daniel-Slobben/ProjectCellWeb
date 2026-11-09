@@ -39,8 +39,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private cellSize = 2.5;
   private readonly minCellSize: number = 0.1
   private readonly maxCellSize: number = 30;
-  private readonly canvasWidth = window.screen.width;
-  private readonly canvasHeight = window.innerHeight - 30;
+  private canvasWidth = window.innerWidth;
+  private canvasHeight = window.innerHeight - 30;
 
   protected cellOffsetX = 0;
   protected cellOffsetY = 0;
@@ -84,16 +84,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    const ratio = Math.ceil(window.devicePixelRatio);
     this.ctx = this.canvasRef.nativeElement.getContext('2d')!;
-
-    this.ctx.canvas.width = this.canvasWidth * ratio;
-    this.ctx.canvas.height = this.canvasHeight * ratio;
-    this.ctx.canvas.style.width = `${this.canvasWidth}px`;
-    this.ctx.canvas.style.height = `${this.canvasHeight}px`;
-    this.ctx.canvas.getContext('2d')!.setTransform(ratio, 0, 0, ratio, 0, 0);
-
-    this.ctx.imageSmoothingQuality = 'high';
+    this.resizeCanvas();
+    window.addEventListener('resize', this.resizeCanvas);
 
     this.loadSettings();
 
@@ -198,7 +191,29 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }
     this.sessionDeadSubscription?.unsubscribe();
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    window.removeEventListener('resize', this.resizeCanvas);
   }
+
+  // Fills the window, keeping the cell in the middle of the view where it is.
+  private readonly resizeCanvas = () => {
+    const width = window.innerWidth;
+    const height = window.innerHeight - 30;
+    this.cellOffsetX += (this.canvasWidth - width) / this.cellSize / 2;
+    this.cellOffsetY += (this.canvasHeight - height) / this.cellSize / 2;
+    this.canvasWidth = width;
+    this.canvasHeight = height;
+
+    const ratio = Math.ceil(window.devicePixelRatio);
+    const canvas = this.ctx.canvas;
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    // Resizing resets the context and clears the canvas.
+    this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    this.ctx.imageSmoothingQuality = 'high';
+    this.drawnGeneration = -1;
+  };
 
   private startRenderLoop() {
     const render = () => {
