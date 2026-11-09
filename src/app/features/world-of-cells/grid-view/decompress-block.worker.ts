@@ -5,7 +5,7 @@ import {BORDER, FramedBlock, FULL, readBlockFrame} from './block-frame';
 let blockSize: number;
 
 let poolFactor = 1;
-let densityGamma = 0.8;
+let densityGamma = 0.6;
 
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();

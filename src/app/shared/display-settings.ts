@@ -30,6 +30,16 @@ function brightness(hex: string): number {
   return 0.299 * (rgb >> 16) + 0.587 * ((rgb >> 8) & 0xff) + 0.114 * (rgb & 0xff);
 }
 
+/** Whether the dead colour is the darker one: light life on a dark ground. */
+function isDark(alive: string, dead: string): boolean {
+  return brightness(dead) < brightness(alive);
+}
+
+/** The gamma a theme starts at, lower on dark themes than on light ones. */
+function defaultGamma(theme: Theme): number {
+  return isDark(theme.alive, theme.dead) ? 0.3 : 0.6;
+}
+
 /** How the grid is drawn, set in the Settings menu and kept in the browser between visits. */
 @Injectable({providedIn: 'root'})
 export class DisplaySettings {
@@ -38,7 +48,7 @@ export class DisplaySettings {
   readonly alive = signal(THEMES[0].alive);
   readonly dead = signal(THEMES[0].dead);
   // Zoomed out, how far a patch's share of alive cells moves it towards the alive colour: lower shows sparse life more.
-  readonly gamma = signal(0.8);
+  readonly gamma = signal(defaultGamma(THEMES[0]));
 
   constructor() {
     try {
@@ -54,9 +64,6 @@ export class DisplaySettings {
       const root = document.documentElement.style;
       root.setProperty('--alive', this.alive());
       root.setProperty('--dead', this.dead());
-      const darkDead = brightness(this.dead()) < brightness(this.alive());
-      root.setProperty('--bar', darkDead ? 'var(--dead)' : 'var(--alive)');
-      root.setProperty('--bar-text', darkDead ? 'var(--alive)' : 'var(--dead)');
 
       const settings = {
         borders: this.borders(), smoothing: this.smoothing(),
@@ -73,5 +80,6 @@ export class DisplaySettings {
   applyTheme(theme: Theme): void {
     this.alive.set(theme.alive);
     this.dead.set(theme.dead);
+    this.gamma.set(defaultGamma(theme));
   }
 }

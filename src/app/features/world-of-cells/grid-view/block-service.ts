@@ -41,7 +41,7 @@ export class BlockService implements OnDestroy {
   private readonly maxWorkers = 8;
   private pendingBatches: PendingBatch[] = [];
   private lastBatchId = 0;
-  private rendering: Rendering = {poolFactor: 1, alive: '#000000', dead: '#ffffff', gamma: 0.8};
+  private rendering: Rendering = {poolFactor: 1, alive: '#000000', dead: '#ffffff', gamma: 0.6};
   private blockSize = 0;
   public clientId = '';
 

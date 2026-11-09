@@ -6,9 +6,9 @@ html {
   /* Set from the chosen theme, see DisplaySettings. */
   --alive: #000000;
   --dead: #ffffff;
-  /* The bars take the darker of the two colours. */
-  --bar: var(--alive);
-  --bar-text: var(--dead);
+  /* The bars take the dead colour, so they read as part of the grid. */
+  --bar: var(--dead);
+  --bar-text: var(--alive);
   --highlight: color-mix(in srgb, var(--bar-text) 80%, var(--bar));
 }
 *, *:before, *:after { box-sizing: inherit; }
