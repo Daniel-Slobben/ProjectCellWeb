@@ -48,6 +48,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   // Visited views; Previous and Next step through them and fetch a new viewport past either end.
   private readonly views: View[] = [];
   private viewIndex = 0;
+  private recentViewports: Coordinates[] = [];
   private ctx!: CanvasRenderingContext2D;
 
   private drawnGeneration = 0;
@@ -111,7 +112,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
       this.blockSize = settings.blockSize;
       this.blockService.setup(settings.blockSize, settings.clientId);
-      this.centerOn(settings.viewport.x, settings.viewport.y);
+      this.goToViewport(settings.viewport);
     });
   }
 
@@ -124,9 +125,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    this.httpClient.get<Coordinates>('/gen-api/viewport').subscribe((viewport) => {
+    this.httpClient.post<Coordinates>('/gen-api/viewport', this.recentViewports).subscribe((viewport) => {
       this.saveView();
-      this.centerOn(viewport.x, viewport.y);
+      this.goToViewport(viewport);
       if (step === 1) {
         this.views.push(this.currentView());
         this.viewIndex = this.views.length - 1;
@@ -135,6 +136,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         this.viewIndex = 0;
       }
     });
+  }
+
+  private goToViewport(viewport: Coordinates): void {
+    this.recentViewports = [...this.recentViewports, viewport].slice(-5);
+    this.centerOn(viewport.x, viewport.y);
   }
 
   // Keeps pans and zooms made since arriving at the current view.
@@ -170,7 +176,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         this.blockService.setup(this.blockSize, reconnectResponse.clientId);
         this.blockService.lastServerContact = new Date();
         if (reconnectResponse.viewport) {
-          this.centerOn(reconnectResponse.viewport.x, reconnectResponse.viewport.y);
+          this.goToViewport(reconnectResponse.viewport);
         }
         this.reconnectInFlight = false;
       }, error: () => {
