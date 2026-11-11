@@ -89,7 +89,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
         stepWithBorder(key, block);
         const bitmap = await toBitmap(decodeByteArrayToImageData(encodedBlocks.get(key)!));
 
-        results.push({bitmap, x: block.x, y: block.y});
+        results.push({bitmap, border: true, x: block.x, y: block.y});
       } catch (e) {
         results.push({error: true, x: block.x, y: block.y})
         console.error(e);

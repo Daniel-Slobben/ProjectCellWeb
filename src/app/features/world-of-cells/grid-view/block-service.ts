@@ -17,6 +17,7 @@ export interface Rendering {
 interface WorkerResult {
   bitmap?: ImageBitmap;
   error?: boolean;
+  border?: boolean;
   x: number;
   y: number;
 }
@@ -44,6 +45,11 @@ export class BlockService implements OnDestroy {
   private rendering: Rendering = {poolFactor: 1, alive: '#000000', dead: '#ffffff', gamma: 0.6};
   private blockSize = 0;
   public clientId = '';
+
+  // The backend's tick rate. Border updates are held back a tick and shown one per tick, so they keep a steady rhythm.
+  public tickMs = 250;
+  private delayedBorders: WorkerResult[][] = [];
+  private playoutTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly publishWindowMs = 150;
   private publishTimer: ReturnType<typeof setTimeout> | null = null;
@@ -187,6 +193,44 @@ export class BlockService implements OnDestroy {
   }
 
   private commitBatch(results: WorkerResult[]): void {
+    const borders = results.filter((r) => r.border);
+    const immediate = results.filter((r) => !r.border);
+
+    if (immediate.length > 0) {
+      const fresh = new Set(immediate.filter((r) => r.bitmap).map(({x, y}) => getKey(x, y)));
+      this.dropDelayed((key) => fresh.has(key));
+      this.applyResults(immediate);
+    }
+
+    if (borders.length > 0) {
+      this.delayedBorders.push(borders);
+      this.playoutTimer ??= setInterval(() => this.releaseBorders(), this.tickMs);
+    }
+  }
+
+  private releaseBorders(): void {
+    if (this.delayedBorders.length === 0) {
+      // Fell behind; the next border starts a fresh one-tick delay.
+      clearInterval(this.playoutTimer!);
+      this.playoutTimer = null;
+      return;
+    }
+    // Two in one tick are spread over the next ticks; any more and we catch up, so the delay stays short.
+    while (this.delayedBorders.length > 2) {
+      this.applyResults(this.delayedBorders.shift()!);
+    }
+    this.applyResults(this.delayedBorders.shift()!);
+  }
+
+  private dropDelayed(drop: (key: string) => boolean): void {
+    this.delayedBorders = this.delayedBorders.map((batch) => batch.filter((r) => {
+      if (!drop(getKey(r.x, r.y))) return true;
+      r.bitmap?.close();
+      return false;
+    }));
+  }
+
+  private applyResults(results: WorkerResult[]): void {
     this.generation++;
 
     const errorBlock: string[] = [];
@@ -218,6 +262,7 @@ export class BlockService implements OnDestroy {
         this.blockData.delete(key);
       }
     }
+    this.dropDelayed((key) => !visibleKeys.has(key));
 
     this.activeBlocks = new Set(visibleKeys);
     this.schedulePublish();
@@ -291,6 +336,12 @@ export class BlockService implements OnDestroy {
       for (const result of batch.results) result.bitmap?.close();
     }
     this.pendingBatches = [];
+    if (this.playoutTimer !== null) {
+      clearInterval(this.playoutTimer);
+      this.playoutTimer = null;
+    }
+    this.dropDelayed(() => true);
+    this.delayedBorders = [];
 
     this.publishedBlocks.clear();
     this.noEditKey = undefined;

@@ -104,6 +104,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private loadSettings(): void {
     this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
       this.blockSize = settings.blockSize;
+      this.blockService.tickMs = settings.targetSpeed;
       this.blockService.setup(settings.blockSize, settings.clientId);
       this.goToViewport(settings.viewport);
     });
