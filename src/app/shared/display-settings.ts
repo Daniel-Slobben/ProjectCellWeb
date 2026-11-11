@@ -45,10 +45,10 @@ function defaultGamma(theme: Theme): number {
 export class DisplaySettings {
   readonly borders = signal(false);
   readonly smoothing = signal(true);
-  readonly alive = signal(THEMES[0].alive);
-  readonly dead = signal(THEMES[0].dead);
+  readonly alive = signal(THEMES[1].alive);
+  readonly dead = signal(THEMES[1].dead);
   // Zoomed out, how far a patch's share of alive cells moves it towards the alive colour: lower shows sparse life more.
-  readonly gamma = signal(defaultGamma(THEMES[0]));
+  readonly gamma = signal(defaultGamma(THEMES[1]));
 
   constructor() {
     try {

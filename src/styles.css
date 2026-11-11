@@ -4,8 +4,8 @@
 html {
   box-sizing: border-box;
   /* Set from the chosen theme, see DisplaySettings. */
-  --alive: #000000;
-  --dead: #ffffff;
+  --alive: #e6e6e6;
+  --dead: #121212;
   /* The bars take the dead colour, so they read as part of the grid. */
   --bar: var(--dead);
   --bar-text: var(--alive);
