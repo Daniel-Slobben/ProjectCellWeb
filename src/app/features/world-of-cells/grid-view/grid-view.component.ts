@@ -10,10 +10,8 @@ import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
 import { getKey } from './utils.component';
 import {Settings} from '../../../requests/incoming/Settings';
-import {ReconnectRequest} from '../../../requests/outgoing/ReconnectRequest';
-import {ReconnectResponse} from '../../../requests/incoming/ReconnectResponse';
 import {Coordinates} from '../../../requests/incoming/Coordinates';
-import {Subscription} from 'rxjs';
+import {finalize, retry, Subscription, timeout} from 'rxjs';
 import {ViewCenter} from '../../../shared/view-center';
 import {ArrowIconComponent} from '../../../shared/icons/arrow-icon.component';
 import {DisplaySettings} from '../../../shared/display-settings';
@@ -68,11 +66,16 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   public selectedBlock: { x: number; y: number } | null = null;
 
-  // Ticks come every 500 ms, so a short silence means the socket is gone, even if it never closed.
-  private readonly reconnectThresholdMs = 4000;
-  private watchdogInterval: ReturnType<typeof setInterval> | null = null;
-  private sessionDeadSubscription?: Subscription;
-  private reconnectInFlight = false;
+  private readonly requestTimeoutMs = 5000;
+  // Retries wait this long, so clients don't keep hammering a server that is struggling.
+  private readonly retryDelayMs = 4000;
+  // A hidden page lets go of its socket, so coming back always starts on a fresh one.
+  private readonly disconnectAfterHiddenMs = 10_000;
+  // After this long away the world has moved on: show something new.
+  private readonly newViewportAfterHiddenMs = 6 * 60 * 60 * 1000;
+  private hiddenAt?: number;
+  private disconnectTimer?: ReturnType<typeof setTimeout>;
+  private noBlocksSubscription?: Subscription;
 
   constructor(private readonly httpClient: HttpClient, private readonly blockService: BlockService,
               private readonly viewCenter: ViewCenter, protected readonly settings: DisplaySettings) {
@@ -93,21 +96,20 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.setupCanvasEvents();
     this.startRenderLoop();
 
-    this.watchdogInterval = setInterval(() => this.reconnectIfSilentFor(this.reconnectThresholdMs), 250);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
-
-    this.sessionDeadSubscription = this.blockService.sessionDead$.subscribe(() => {
-      this.reconnect();
-    });
+    if (document.hidden) this.onVisibilityChange();
+    this.noBlocksSubscription = this.blockService.noBlocks$.subscribe(() => this.jumpToInterestingViewport());
   }
 
   private loadSettings(): void {
-    this.httpClient.get<Settings>('/gen-api/settings').subscribe((settings) => {
-      this.blockSize = settings.blockSize;
-      this.blockService.tickMs = settings.targetSpeed;
-      this.blockService.setup(settings.blockSize, settings.clientId);
-      this.goToViewport(settings.viewport);
-    });
+    this.httpClient.get<Settings>('/gen-api/settings')
+      .pipe(timeout(this.requestTimeoutMs), retry({delay: this.retryDelayMs}))
+      .subscribe((settings) => {
+        this.blockSize = settings.blockSize;
+        this.blockService.tickMs = settings.targetSpeed;
+        this.goToViewport(settings.viewport);
+        this.blockService.start(settings.blockSize);
+      });
   }
 
   protected stepView(step: -1 | 1): void {
@@ -146,39 +148,32 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     return {cellOffsetX: this.cellOffsetX, cellOffsetY: this.cellOffsetY, cellSize: this.cellSize};
   }
 
-  // A phone waking from standby often holds a socket that died without closing, so don't wait for the watchdog.
   private readonly onVisibilityChange = () => {
-    if (document.visibilityState === 'visible') {
-      this.reconnectIfSilentFor(this.reconnectThresholdMs);
+    clearTimeout(this.disconnectTimer);
+    if (document.visibilityState === 'hidden') {
+      this.hiddenAt ??= Date.now();
+      this.disconnectTimer = setTimeout(() => this.blockService.disconnect(), this.disconnectAfterHiddenMs);
+      return;
+    }
+    if (this.hiddenAt === undefined) return;
+    const hiddenFor = Date.now() - this.hiddenAt;
+    this.hiddenAt = undefined;
+    if (hiddenFor > this.disconnectAfterHiddenMs) {
+      // A phone in standby may not have run the timer, and its socket may have died without closing.
+      this.blockService.disconnect();
+    }
+    if (hiddenFor > this.newViewportAfterHiddenMs) {
+      // Connect once there, or the old view's blocks are requested first.
+      this.jumpToInterestingViewport(() => this.blockService.connect());
+    } else {
+      this.blockService.connect();
     }
   };
 
-  private reconnectIfSilentFor(ms: number): void {
-    if (this.blockService.lastServerContact.getTime() < Date.now() - ms) {
-      this.reconnect();
-    }
-  }
-
-  private reconnect(): void {
-    if (this.reconnectInFlight) return;
-    this.reconnectInFlight = true;
-
-    const reconnectRequest = new ReconnectRequest(Array.from(this.blockService.activeBlocks));
-    this.httpClient.post<ReconnectResponse>("/gen-api/reconnect", reconnectRequest).subscribe({
-      next: (reconnectResponse) => {
-        this.blockService.renewSocket();
-        this.blockService.setup(this.blockSize, reconnectResponse.clientId);
-        this.blockService.lastServerContact = new Date();
-        if (reconnectResponse.viewport) {
-          this.goToViewport(reconnectResponse.viewport);
-        }
-        this.reconnectInFlight = false;
-      }, error: () => {
-        // Wait a whole threshold before trying again, so clients don't keep hammering a server that is struggling.
-        this.blockService.lastServerContact = new Date();
-        this.reconnectInFlight = false;
-      }
-    });
+  private jumpToInterestingViewport(then = () => {}): void {
+    this.httpClient.post<Coordinates>('/gen-api/viewport', this.recentViewports)
+      .pipe(timeout(this.requestTimeoutMs), finalize(then))
+      .subscribe({next: (viewport) => this.goToViewport(viewport), error: () => {}});
   }
 
   ngOnDestroy() {
@@ -186,11 +181,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       cancelAnimationFrame(this.animationFrameId);
     }
 
-    if (this.watchdogInterval !== null) {
-      clearInterval(this.watchdogInterval);
-      this.watchdogInterval = null;
-    }
-    this.sessionDeadSubscription?.unsubscribe();
+    clearTimeout(this.disconnectTimer);
+    this.noBlocksSubscription?.unsubscribe();
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('resize', this.resizeCanvas);
   }

@@ -6,12 +6,13 @@
 // --dist serves another build of the app, e.g. one made with `npx ng build --output-path /tmp/variant`,
 // so two versions of the drawing code can be compared against the same mock.
 //
-// The mock speaks the same wire protocol as the Spring backend: GET /gen-api/settings,
-// POST /gen-api/reconnect and STOMP over a raw WebSocket at /ws. Like the backend, it answers every
-// /client-update with one MESSAGE per added block holding its FULL, and every tick sends each
-// client one MESSAGE with a BORDER for each block it already has (an empty one if it has none).
-// Block messages are binary frames (application/octet-stream) in the layout of
-// src/app/features/world-of-cells/grid-view/block-frame.ts; health acks are JSON.
+// The mock speaks the same wire protocol as the Spring backend: GET /gen-api/settings and STOMP over a
+// raw WebSocket at /ws, where each connection is one client that subscribes to /user/queue/blocks. Like
+// the backend, it answers every /client-update with one MESSAGE per added block holding its FULL, and
+// every tick sends each client one MESSAGE with a BORDER for each block it already has (an empty one if
+// it has none). Block messages are binary frames (application/octet-stream) in the layout of
+// src/app/features/world-of-cells/grid-view/block-frame.ts. Every block exists, so it never sends
+// NO_BLOCKS, and it has no heartbeats: --pattern lines sends nothing per tick.
 // Cell content is random noise; only sizes and timing matter for drawing. --pattern lines serves
 // alternating alive/dead lines instead, vertical and horizontal in a checkerboard of blocks, and sends
 // no BORDERs: the lines are a still life, so the blocks stay as they are.
@@ -226,16 +227,11 @@ export async function startServer(options = {}) {
   // Start a quarter into a block, far from the origin.
   const home = {worldX: 50 * opts.blockSize + opts.blockSize / 4, worldY: 50 * opts.blockSize + opts.blockSize / 4};
   let worldGeneration = 0;
-  const clients = new Map(); // clientId -> {keys: Set, sent: Set, connection, subscription, messageId}
-  const newClient = () => {
-    const id = crypto.randomUUID();
-    clients.set(id, {keys: new Set(), sent: new Set(), connection: null, subscription: null, messageId: 0});
-    return id;
-  };
+  const clients = new Set(); // {id, keys: Set, sent: Set, connection, subscription, messageId}, one per connection
 
   // With two line payloads this picks them in a checkerboard: x * 31 + y * 17 has the parity of x + y.
   const cellsFor = (pool, x, y) => pool[Math.abs(x * 31 + y * 17 + worldGeneration) % pool.length];
-  const sendBlocks = (id, client, keys, type) => {
+  const sendBlocks = (client, keys, type) => {
     const pool = type === 'FULL' ? payloads.full : payloads.border;
     const parts = [];
     for (const key of keys) {
@@ -250,77 +246,58 @@ export async function startServer(options = {}) {
       parts.push(head, cells);
     }
     client.connection.send(0x2, stompBinaryFrame({
-      destination: `/topic/${id}`, 'content-type': 'application/octet-stream',
-      subscription: client.subscription, 'message-id': `${id.slice(0, 8)}-${client.messageId++}`,
+      destination: '/user/queue/blocks', 'content-type': 'application/octet-stream',
+      subscription: client.subscription, 'message-id': `${client.id}-${client.messageId++}`,
     }, Buffer.concat(parts)));
   };
-  const ready = (client) => client.connection && client.subscription !== null;
+  const ready = (client) => client.subscription !== null;
   /** One message per FULL, for every subscribed block the client has not had yet. */
-  const sendFulls = (id, client) => {
+  const sendFulls = (client) => {
     if (!ready(client)) return;
     for (const key of client.keys) {
       if (client.sent.has(key)) continue;
       client.sent.add(key);
-      sendBlocks(id, client, [key], 'FULL');
+      sendBlocks(client, [key], 'FULL');
     }
   };
 
   const tick = () => {
     if (opts.pattern !== 'lines') worldGeneration++;
-    for (const [id, client] of clients) {
+    for (const client of clients) {
       if (!ready(client)) continue;
-      if (opts.pattern !== 'lines') sendBlocks(id, client, [...client.sent], 'BORDER');
+      if (opts.pattern !== 'lines') sendBlocks(client, [...client.sent], 'BORDER');
       // Only blocks added before the subscription existed are still waiting for their FULL.
-      sendFulls(id, client);
+      sendFulls(client);
     }
   };
   const ticker = setInterval(tick, opts.tick);
+  let connectionCount = 0;
 
-  const onStomp = (connection, state) => (text) => {
+  const onStomp = (client) => (text) => {
     for (const frame of parseStompFrames(text)) {
       switch (frame.command) {
         case 'CONNECT':
         case 'STOMP':
-          connection.sendText(stompFrame('CONNECTED', {version: '1.2', 'heart-beat': '0,0', server: 'cellweb-bench'}));
+          client.connection.sendText(stompFrame('CONNECTED', {version: '1.2', 'heart-beat': '0,0', server: 'cellweb-bench'}));
           break;
-        case 'SUBSCRIBE': {
-          const id = (frame.headers.destination ?? '').replace('/topic/', '');
-          const client = clients.get(id);
-          if (!client) break;
-          client.connection = connection;
-          client.subscription = frame.headers.id;
-          state.clientIds.add(id);
+        case 'SUBSCRIBE':
+          if (frame.headers.destination === '/user/queue/blocks') client.subscription = frame.headers.id;
           break;
-        }
         case 'UNSUBSCRIBE':
-          for (const id of state.clientIds) {
-            const client = clients.get(id);
-            if (client?.subscription === frame.headers.id) client.subscription = null;
-          }
+          if (client.subscription === frame.headers.id) client.subscription = null;
           break;
         case 'SEND': {
           if (frame.headers.destination === '/client-update') {
             const update = JSON.parse(frame.body);
-            const client = clients.get(update.client);
-            if (!client) break;
             for (const key of update.blocksToRemove ?? []) { client.keys.delete(key); client.sent.delete(key); }
             // Adds also cover the client's error path, which re-adds a key to get a fresh FULL.
             for (const key of update.blocksToAdd ?? []) { client.keys.add(key); client.sent.delete(key); }
-            sendFulls(update.client, client);
-          } else if (frame.headers.destination === '/health-check') {
-            const id = JSON.parse(frame.body);
-            const client = clients.get(id);
-            if (client?.subscription != null) {
-              connection.sendText(stompFrame('MESSAGE', {
-                destination: `/topic/${id}`, 'content-type': 'application/json',
-                subscription: client.subscription, 'message-id': `${id.slice(0, 8)}-${client.messageId++}`,
-              }, '{"type":"HEALTH_ACK"}'));
-            }
+            sendFulls(client);
           }
           break;
         }
         case 'DISCONNECT':
-          if (frame.headers.receipt) connection.sendText(stompFrame('RECEIPT', {'receipt-id': frame.headers.receipt}));
+          if (frame.headers.receipt) client.connection.sendText(stompFrame('RECEIPT', {'receipt-id': frame.headers.receipt}));
           break;
       }
     }
@@ -345,11 +322,7 @@ export async function startServer(options = {}) {
     const p = url.pathname;
 
     if (p === '/gen-api/settings') {
-      return sendJson(res, 200, {blockSize: opts.blockSize, clientId: newClient(), viewport: {x: home.worldX, y: home.worldY}, targetSpeed: opts.tick});
-    }
-    if (p === '/gen-api/reconnect') {
-      await readBody(req);
-      return sendJson(res, 200, {clientId: newClient(), viewport: null});
+      return sendJson(res, 200, {blockSize: opts.blockSize, viewport: {x: home.worldX, y: home.worldY}, targetSpeed: opts.tick});
     }
     if (p === '/__bench/info') {
       return sendJson(res, 200, {blockSize: opts.blockSize, tickMs: opts.tick, density: opts.density, home,
@@ -408,11 +381,9 @@ export async function startServer(options = {}) {
     socket.setNoDelay(true);
     socket.write(['HTTP/1.1 101 Switching Protocols', 'Upgrade: websocket', 'Connection: Upgrade',
       `Sec-WebSocket-Accept: ${accept}`, ...(protocol ? [`Sec-WebSocket-Protocol: ${protocol}`] : []), '', ''].join('\r\n'));
-    const state = {clientIds: new Set()};
-    let connection;
-    connection = new WsConnection(socket, (text) => onStomp(connection, state)(text), () => {
-      for (const id of state.clientIds) clients.delete(id);
-    });
+    const client = {id: ++connectionCount, keys: new Set(), sent: new Set(), connection: null, subscription: null, messageId: 0};
+    client.connection = new WsConnection(socket, onStomp(client), () => clients.delete(client));
+    clients.add(client);
   });
 
   await new Promise((resolve) => server.listen(opts.port, resolve));

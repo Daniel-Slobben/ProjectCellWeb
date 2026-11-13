@@ -1,63 +1,60 @@
-import {IMessage, RxStomp} from '@stomp/rx-stomp';
-import {Subscription} from 'rxjs';
+import {IMessage, ReconnectionTimeMode, RxStomp} from '@stomp/rx-stomp';
 import {readBlockFrame} from './block-frame';
 import {workerIndex} from './utils.component';
 
 export type SocketCommand =
-  | {type: 'activate'; brokerURL: string}
-  | {type: 'subscribe'; clientId: string; workers: number}
-  | {type: 'unsubscribe'}
+  | {type: 'activate'; brokerURL: string; workers: number}
   | {type: 'publish'; destination: string; body: string}
-  | {type: 'renew'}
   | {type: 'deactivate'};
 
 export type SocketEvent =
   | {type: 'connected'}
-  | {type: 'blocks'; clientId: string; perWorker: (ArrayBuffer | null)[]}
-  | {type: 'healthAck'; clientId: string}
-  | {type: 'sessionDead'; clientId: string};
+  | {type: 'blocks'; perWorker: (ArrayBuffer | null)[]}
+  | {type: 'noBlocks'};
 
 let stomp: RxStomp | undefined;
-let subscription: Subscription | undefined;
+let workers = 1;
 
 globalThis.onmessage = (e: MessageEvent<SocketCommand>) => {
   const command = e.data;
   switch (command.type) {
     case 'activate':
-      stomp = new RxStomp();
-      stomp.configure({brokerURL: command.brokerURL, connectHeaders: {}, reconnectDelay: 500, discardWebsocketOnCommFailure: true});
-      stomp.connected$.subscribe(() => post({type: 'connected'}));
+      workers = command.workers;
+      stomp ??= createStomp(command.brokerURL);
       stomp.activate();
       break;
-    case 'subscribe':
-      subscription?.unsubscribe();
-      subscription = stomp!
-        .watch('/topic/' + command.clientId)
-        .subscribe((message) => onMessage(message, command.clientId, command.workers));
-      break;
-    case 'unsubscribe':
-      subscription?.unsubscribe();
-      subscription = undefined;
-      break;
     case 'publish':
-      stomp?.publish({destination: command.destination, body: command.body});
-      break;
-    case 'renew':
-      // Drops the socket at once, without a closing handshake, and reconnects.
-      stomp?.stompClient.forceDisconnect();
+      // Dropped while disconnected: every new connection sends the whole block list again.
+      if (stomp?.connected()) stomp.publish({destination: command.destination, body: command.body});
       break;
     case 'deactivate':
-      subscription?.unsubscribe();
-      void stomp?.deactivate().then(() => self.close());
+      // Without a closing handshake, which a dead socket would never finish.
+      void stomp?.deactivate({force: true});
       break;
   }
 };
+
+function createStomp(brokerURL: string): RxStomp {
+  const rxStomp = new RxStomp();
+  // A socket that stops passing data without closing, as after a phone's standby, is dropped after 2 × 2 s without a
+  // message. Ticks come far more often than that, so the server's heartbeats only cover a session without blocks.
+  // Retries wait 0.5 s, doubling up to 8 s, so a restarting server isn't flooded by every client at once.
+  rxStomp.configure({
+    brokerURL, heartbeatIncoming: 2000, heartbeatOutgoing: 5000, connectionTimeout: 5000,
+    reconnectDelay: 500, reconnectTimeMode: ReconnectionTimeMode.EXPONENTIAL, maxReconnectDelay: 8000,
+    discardWebsocketOnCommFailure: true,
+  });
+  rxStomp.connected$.subscribe(() => post({type: 'connected'}));
+  // The server routes this to our own session; RxStomp subscribes again on every new connection.
+  rxStomp.watch('/user/queue/blocks').subscribe(onMessage);
+  return rxStomp;
+}
 
 function post(event: SocketEvent, transfer: ArrayBuffer[] = []): void {
   self.postMessage(event, {transfer});
 }
 
-function onMessage(message: IMessage, clientId: string, workers: number): void {
+function onMessage(message: IMessage): void {
   if (message.headers['content-type']?.startsWith('application/octet-stream')) {
     let perWorker: (ArrayBuffer | null)[];
     try {
@@ -66,17 +63,15 @@ function onMessage(message: IMessage, clientId: string, workers: number): void {
       console.error('Dropping malformed block message', e);
       return;
     }
-    post({type: 'blocks', clientId, perWorker}, perWorker.filter((b): b is ArrayBuffer => b !== null));
+    post({type: 'blocks', perWorker}, perWorker.filter((b): b is ArrayBuffer => b !== null));
     return;
   }
 
   const body = JSON.parse(message.body);
-  if (body?.type === 'HEALTH_ACK') {
-    post({type: 'healthAck', clientId});
-  } else if (body?.type === 'SESSION_DEAD') {
-    post({type: 'sessionDead', clientId});
+  if (body?.type === 'NO_BLOCKS') {
+    post({type: 'noBlocks'});
   } else {
-    console.warn('Unexpected message on the block topic', body);
+    console.warn('Unexpected message on the block queue', body);
   }
 }
 

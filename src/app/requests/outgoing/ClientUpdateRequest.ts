@@ -1,10 +1,8 @@
 export class ClientUpdateRequest {
-  client: string;
   blocksToRemove: string[];
   blocksToAdd: string[];
 
-  constructor(uuid: string, blocksToRemove: string[], blocksToAdd: string[]) {
-    this.client = uuid;
+  constructor(blocksToRemove: string[], blocksToAdd: string[]) {
     this.blocksToRemove = blocksToRemove;
     this.blocksToAdd = blocksToAdd;
   }

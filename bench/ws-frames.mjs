@@ -10,15 +10,13 @@
 // compressed messages at 8192 bytes. So with compression negotiated, any "binary ... fragments" line
 // below means Safari will disconnect.
 //
-// It fetches /gen-api/settings for a client id, connects to /ws, sends CONNECT, SUBSCRIBE and a
-// /client-update for four blocks, and listens for 2.5 s.
+// It connects to /ws, sends CONNECT, SUBSCRIBE and a /client-update for four blocks, and listens for 2.5 s.
 import net from 'node:net';
 import tls from 'node:tls';
 import crypto from 'node:crypto';
 
 const base = new URL(process.argv[2] ?? 'https://world-of-cells.net');
 const offer = process.argv[3] ?? 'permessage-deflate';
-const {clientId} = await (await fetch(new URL('/gen-api/settings', base))).json();
 
 const secure = base.protocol === 'https:';
 const port = Number(base.port) || (secure ? 443 : 80);
@@ -75,8 +73,8 @@ socket.on('data', (chunk) => {
       (message.opcode === 1 && !message.rsv1 ? `   ${JSON.stringify(message.first.toString().replace(/\0$/, '').slice(0, 160))}` : ''));
     // CONNECTED is the first text message; compressed or not, it is short, so the subscribe can follow it.
     if (message.opcode === 1 && message.frames === 1 && message.bytes < 200 && frames === 1) {
-      sendText(`SUBSCRIBE\nid:sub-0\ndestination:/topic/${clientId}\n\n\0`);
-      const update = JSON.stringify({client: clientId, blocksToRemove: [], blocksToAdd: ['0/0', '1/0', '0/1', '1/1']});
+      sendText(`SUBSCRIBE\nid:sub-0\ndestination:/user/queue/blocks\n\n\0`);
+      const update = JSON.stringify({blocksToRemove: [], blocksToAdd: ['0/0', '1/0', '0/1', '1/1']});
       sendText(`SEND\ndestination:/client-update\ncontent-type:application/json\ncontent-length:${Buffer.byteLength(update)}\n\n${update}\0`);
     }
   }
