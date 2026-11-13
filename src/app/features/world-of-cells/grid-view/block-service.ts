@@ -77,9 +77,8 @@ export class BlockService implements OnDestroy {
     return `${scheme}//${window.location.host}${path}`;
   }
 
-  public start(blockSize: number): void {
+  public setBlockSize(blockSize: number): void {
     this.blockSize = blockSize;
-    this.connect();
   }
 
   // The socket reconnects by itself until disconnect() is called.
@@ -138,6 +137,8 @@ export class BlockService implements OnDestroy {
   }
 
   private dispatchToWorkers(type: 'init' | 'rescale' | 'forget', blocks: BlockPosition[]): void {
+    // Before the first connection there are no workers, and nothing for them to forget.
+    if (this.workers.length === 0) return;
     const perWorker: BlockPosition[][] = this.workers.map(() => []);
     for (const block of blocks) {
       perWorker[workerIndex(block.x, block.y, this.workers.length)].push(block);

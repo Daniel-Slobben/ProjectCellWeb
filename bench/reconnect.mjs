@@ -156,6 +156,7 @@ const base = `http://localhost:${server.address().port}`;
 
 const initScript = () => {
   window.__bitmaps = [];
+  window.__connected = [];
   window.__hidden = false;
   Object.defineProperty(Document.prototype, 'visibilityState', {get: () => (window.__hidden ? 'hidden' : 'visible')});
   Object.defineProperty(Document.prototype, 'hidden', {get: () => window.__hidden});
@@ -165,6 +166,7 @@ const initScript = () => {
       super(...args);
       this.addEventListener('message', (e) => {
         if (e.data?.results?.some((r) => r.bitmap)) window.__bitmaps.push(Date.now());
+        if (e.data?.type === 'connected') window.__connected.push(Date.now());
       });
     }
   };
@@ -266,13 +268,13 @@ async function runScenario(name) {
   if (sleepMs > 0 || hidden) log.push({t: wakeAt, what: 'wake'});
 
   // Blocks already on their way still decode after a fault, so with a broken socket only a bitmap after a
-  // new socket opened counts.
+  // new STOMP connection counts.
   let recoveredAt = null;
   for (const deadline = wakeAt + opts.timeout; recoveredAt === null && Date.now() < deadline;) {
-    const opened = mode === 'none' ? wakeAt : log.find((e) => e.what === 'ws open' && e.t >= faultAt)?.t;
-    if (opened !== undefined) {
-      recoveredAt = await page.evaluate((t) => window.__bitmaps.find((b) => b > t) ?? null, Math.max(opened, wakeAt));
-    }
+    recoveredAt = await page.evaluate(({fault, wake, broken}) => {
+      const connected = broken ? window.__connected.find((c) => c >= fault) : wake;
+      return connected === undefined ? null : window.__bitmaps.find((b) => b > Math.max(connected, wake)) ?? null;
+    }, {fault: faultAt, wake: wakeAt, broken: mode !== 'none'});
     if (recoveredAt === null) await page.waitForTimeout(50);
   }
   if (recoveredAt !== null) await page.waitForTimeout(1500);

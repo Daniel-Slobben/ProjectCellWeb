@@ -108,7 +108,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         this.blockSize = settings.blockSize;
         this.blockService.tickMs = settings.targetSpeed;
         this.goToViewport(settings.viewport);
-        this.blockService.start(settings.blockSize);
+        this.blockService.setBlockSize(settings.blockSize);
+        // A hidden page connects once it is visible.
+        if (!document.hidden) this.blockService.connect();
       });
   }
 
