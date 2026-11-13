@@ -71,13 +71,14 @@ socket MB/s, rescale batches and settle time.
 
 ## What the mock does
 
-`server.mjs` serves `/gen-api/settings`, `/gen-api/reconnect` and STOMP over a raw WebSocket at `/ws`.
+`server.mjs` serves `/gen-api/settings` and STOMP over a raw WebSocket at `/ws`, where each connection
+is one client that subscribes to `/user/queue/blocks`.
 Frames carry `content-length` the way Spring's encoder writes them. As with the real backend, each
 `/client-update` is answered right away by one MESSAGE per added block, holding its FULL, and
 every tick (`--tick`, default 250 ms) sends each client one MESSAGE with a BORDER for every block it
 already has (empty if it has none). Block messages are binary frames (`application/octet-stream`) in
-the layout documented in `src/app/features/world-of-cells/grid-view/block-frame.ts`; health acks are
-JSON, and the settings response carries no blocks, with `targetSpeed` set to `--tick`. The cells are random noise at `--density` (default 1/6). At `--block-size 2000` a FULL
+the layout documented in `src/app/features/world-of-cells/grid-view/block-frame.ts`. Every block exists, so there is
+no NO_BLOCKS, and there are no heartbeats; the settings response carries no blocks, with `targetSpeed` set to `--tick`. The cells are random noise at `--density` (default 1/6). At `--block-size 2000` a FULL
 is about 450 KB of LZ4. Real worlds compress better, so socket costs here are an upper bound.
 
 The STOMP client runs in a worker, so the page can't hook its socket directly. `server.mjs` prepends
@@ -122,5 +123,6 @@ The default offer is Safari's (`permessage-deflate`); pass `""` to see what an u
 
 `node bench/reconnect.mjs` (after `npx ng build`) runs the build against the real backend on :8080 through
 a proxy that can kill the `/ws` socket or turn it half-open, and optionally freezes the page as
-"standby". It prints the time from wake to the first freshly decoded bitmap, plus a timeline of
-socket opens/closes and `/gen-api/reconnect` calls. `--scenarios kill,sleep3-halfopen,...`, `--headed`.
+"standby" or only hides it. It prints the time from wake to the first freshly decoded bitmap, plus a
+timeline of socket opens/closes and `/gen-api` calls. `--scenarios kill,sleep3-halfopen,hidden15,...`,
+`--headed`, `--backend <port>`.

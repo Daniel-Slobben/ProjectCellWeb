@@ -39,12 +39,11 @@ export class BlockService implements OnDestroy {
 
   private noEditKey: string | undefined;
   private workers: Worker[] = [];
-  private readonly maxWorkers = 8;
+  private readonly workerCount = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
   private pendingBatches: PendingBatch[] = [];
   private lastBatchId = 0;
   private rendering: Rendering = {poolFactor: 1, alive: '#000000', dead: '#ffffff', gamma: 0.6};
   private blockSize = 0;
-  public clientId = '';
 
   // The backend's tick rate. Border updates are held back a tick and shown one per tick, so they keep a steady rhythm.
   public tickMs = 250;
@@ -54,24 +53,19 @@ export class BlockService implements OnDestroy {
   private readonly publishWindowMs = 150;
   private publishTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private readonly healthCheckIntervalMs = 8000;
-  private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
-
-  public lastServerContact = new Date();
-
-  private readonly sessionDeadSubject = new Subject<void>();
-  public readonly sessionDead$ = this.sessionDeadSubject.asObservable();
+  // The server found none of the blocks in view when this connection started.
+  private readonly noBlocksSubject = new Subject<void>();
+  public readonly noBlocks$ = this.noBlocksSubject.asObservable();
 
   constructor() {
     this.socket = new Worker(new URL('./stomp.worker.ts', import.meta.url), {type: 'module'});
     this.socket.onmessage = (e: MessageEvent<SocketEvent>) => this.onSocketEvent(e.data);
-    this.sendToSocket({type: 'activate', brokerURL: BlockService.brokerUrl('/ws')});
   }
 
   ngOnDestroy(): void {
     this.teardownSession();
-    this.sessionDeadSubject.complete();
-    this.sendToSocket({type: 'deactivate'});
+    this.noBlocksSubject.complete();
+    this.socket.terminate();
   }
 
   public getGeneration(): number {
@@ -83,22 +77,18 @@ export class BlockService implements OnDestroy {
     return `${scheme}//${window.location.host}${path}`;
   }
 
-  public setup(blockSize: number, clientId: string): void {
-    this.teardownSession();
-
+  public setBlockSize(blockSize: number): void {
     this.blockSize = blockSize;
-    this.clientId = clientId;
-
-    this.createWorkerPool();
-    this.sendToSocket({type: 'subscribe', clientId, workers: this.workers.length});
-
-    this.healthCheckInterval = setInterval(() => {
-      this.publishToSocket('/health-check', JSON.stringify(this.clientId));
-    }, this.healthCheckIntervalMs)
   }
 
-  public renewSocket(): void {
-    this.sendToSocket({type: 'renew'});
+  // The socket reconnects by itself until disconnect() is called.
+  public connect(): void {
+    if (this.blockSize === 0) return;
+    this.sendToSocket({type: 'activate', brokerURL: BlockService.brokerUrl('/ws'), workers: this.workerCount});
+  }
+
+  public disconnect(): void {
+    this.sendToSocket({type: 'deactivate'});
   }
 
   private sendToSocket(command: SocketCommand): void {
@@ -110,30 +100,24 @@ export class BlockService implements OnDestroy {
   }
 
   private onSocketEvent(event: SocketEvent): void {
-    if (event.type === 'connected') {
-      // Anything sent on the previous socket may have been lost, so send the whole block list again.
-      this.publishedBlocks.clear();
-      this.schedulePublish();
-      return;
-    }
-    if (event.clientId !== this.clientId) return;
-
-    this.lastServerContact = new Date();
     switch (event.type) {
-      case 'sessionDead':
-        this.sessionDeadSubject.next();
+      case 'connected':
+        // Each connection is a new client on the server, so start over and send the whole block list.
+        this.teardownSession();
+        this.createWorkerPool();
+        this.schedulePublish();
         break;
       case 'blocks':
         this.postBatch(event.perWorker.map((frame) => frame && {type: 'payload', frame}));
+        break;
+      case 'noBlocks':
+        this.noBlocksSubject.next();
         break;
     }
   }
 
   private createWorkerPool(): void {
-    const cores = navigator.hardwareConcurrency || 4;
-    const count = Math.max(1, Math.min(this.maxWorkers, cores - 1));
-
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < this.workerCount; i++) {
       const worker = new Worker(
         new URL('./decompress-block.worker.ts', import.meta.url),
         {type: 'module'},
@@ -153,6 +137,8 @@ export class BlockService implements OnDestroy {
   }
 
   private dispatchToWorkers(type: 'init' | 'rescale' | 'forget', blocks: BlockPosition[]): void {
+    // Before the first connection there are no workers, and nothing for them to forget.
+    if (this.workers.length === 0) return;
     const perWorker: BlockPosition[][] = this.workers.map(() => []);
     for (const block of blocks) {
       perWorker[workerIndex(block.x, block.y, this.workers.length)].push(block);
@@ -251,7 +237,7 @@ export class BlockService implements OnDestroy {
       }
     }
     if (errorBlock.length > 0) {
-      this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest(this.clientId, [], errorBlock)));
+      this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest([], errorBlock)));
     }
   }
 
@@ -301,7 +287,7 @@ export class BlockService implements OnDestroy {
 
     if (toRemove.length === 0 && toAdd.length === 0) return;
 
-    this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest(this.clientId, toRemove, toAdd)));
+    this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest(toRemove, toAdd)));
     this.publishedBlocks = new Set(this.activeBlocks);
 
     // Workers drop what they hold for removed blocks, so one that comes back starts over from its full block.
@@ -322,11 +308,6 @@ export class BlockService implements OnDestroy {
       clearTimeout(this.publishTimer);
       this.publishTimer = null;
     }
-    if (this.healthCheckInterval !== null) {
-      clearInterval(this.healthCheckInterval);
-      this.healthCheckInterval = null;
-    }
-    this.sendToSocket({type: 'unsubscribe'});
 
     for (const worker of this.workers) {
       worker.terminate();

@@ -8,6 +8,8 @@
 //   halfopen        the socket silently stops passing data in both directions and never closes
 //   sleep<N>-<mode> the page's main thread is frozen for N s and reported hidden, while the socket is
 //                   killed or goes half-open; the clock starts when the page wakes and is visible again
+//   hidden<N>       the page is reported hidden for N s and nothing breaks; past 10 s it lets go of its
+//                   socket, so the clock (from visible again) shows what coming back to a tab costs
 //   pan<N>k         nothing breaks; server-to-client traffic is throttled to N kbit/s while the page pans
 //                   at the smallest zoom, so new blocks keep arriving. Any reconnect here is a false alarm
 import http from 'node:http';
@@ -18,7 +20,7 @@ import {chromium} from 'playwright-core';
 import {parseArgs} from './server.mjs';
 
 const opts = parseArgs(process.argv.slice(2), {
-  scenarios: 'kill,halfopen,sleep3-halfopen,sleep8-halfopen,sleep20-halfopen,sleep30-halfopen,sleep30-kill',
+  scenarios: 'kill,halfopen,sleep3-halfopen,sleep8-halfopen,sleep20-halfopen,sleep30-halfopen,sleep30-kill,hidden5,hidden15',
   backend: 8080, dist: 'dist/CellWeb/browser', headed: false, runs: 1, timeout: 25000,
 });
 const dist = path.resolve(opts.dist);
@@ -154,6 +156,7 @@ const base = `http://localhost:${server.address().port}`;
 
 const initScript = () => {
   window.__bitmaps = [];
+  window.__connected = [];
   window.__hidden = false;
   Object.defineProperty(Document.prototype, 'visibilityState', {get: () => (window.__hidden ? 'hidden' : 'visible')});
   Object.defineProperty(Document.prototype, 'hidden', {get: () => window.__hidden});
@@ -163,6 +166,7 @@ const initScript = () => {
       super(...args);
       this.addEventListener('message', (e) => {
         if (e.data?.results?.some((r) => r.bitmap)) window.__bitmaps.push(Date.now());
+        if (e.data?.type === 'connected') window.__connected.push(Date.now());
       });
     }
   };
@@ -207,7 +211,7 @@ async function runPan(name, rate) {
   await page.close();
   breakSockets('kill');
 
-  const reconnects = log.filter((e) => e.what === 'http /gen-api/reconnect');
+  const reconnects = log.filter((e) => e.what === 'ws open');
   let maxGap = 0;
   for (let i = 1; i < messages.length; i++) maxGap = Math.max(maxGap, messages[i][0] - messages[i - 1][0]);
   const maxKb = Math.max(0, ...messages.map(([, b]) => b)) / 1024;
@@ -219,10 +223,11 @@ async function runPan(name, rate) {
 async function runScenario(name) {
   const pan = /^pan(\d+)k$/.exec(name);
   if (pan) return runPan(name, Number(pan[1]));
+  const hidden = /^hidden(\d+)$/.exec(name);
   const m = /^(?:sleep(\d+)-)?(kill|halfopen)$/.exec(name);
-  if (!m) throw new Error(`unknown scenario ${name}`);
-  const sleepMs = Number(m[1] ?? 0) * 1000;
-  const mode = m[2];
+  if (!m && !hidden) throw new Error(`unknown scenario ${name}`);
+  const sleepMs = Number(m?.[1] ?? 0) * 1000;
+  const mode = m?.[2] ?? 'none';
 
   const page = await browser.newPage({viewport: {width: 1280, height: 800}});
   await page.addInitScript(initScript);
@@ -233,7 +238,16 @@ async function runScenario(name) {
   log = [];
   const faultAt = Date.now();
   mark(`fault ${mode}`);
-  if (sleepMs > 0) {
+  if (hidden) {
+    const setHidden = (value) => page.evaluate((v) => {
+      window.__hidden = v;
+      window.__wakeAt = Date.now();
+      document.dispatchEvent(new Event('visibilitychange'));
+    }, value);
+    await setHidden(true);
+    await page.waitForTimeout(Number(hidden[1]) * 1000);
+    await setHidden(false);
+  } else if (sleepMs > 0) {
     await page.evaluate(() => {
       window.__hidden = true;
       document.dispatchEvent(new Event('visibilitychange'));
@@ -250,17 +264,20 @@ async function runScenario(name) {
   } else {
     breakSockets(mode);
   }
-  const wakeAt = sleepMs > 0 ? await page.evaluate(() => window.__wakeAt) : faultAt;
-  if (sleepMs > 0) log.push({t: wakeAt, what: 'wake'});
+  const wakeAt = sleepMs > 0 || hidden ? await page.evaluate(() => window.__wakeAt) : faultAt;
+  if (sleepMs > 0 || hidden) log.push({t: wakeAt, what: 'wake'});
 
+  // Blocks already on their way still decode after a fault, so with a broken socket only a bitmap after a
+  // new STOMP connection counts.
   let recoveredAt = null;
-  try {
-    const handle = await page.waitForFunction((t) => window.__bitmaps.find((b) => b > t), wakeAt, {timeout: opts.timeout, polling: 50});
-    recoveredAt = await handle.jsonValue();
-    await page.waitForTimeout(1500);
-  } catch {
-    // stays null
+  for (const deadline = wakeAt + opts.timeout; recoveredAt === null && Date.now() < deadline;) {
+    recoveredAt = await page.evaluate(({fault, wake, broken}) => {
+      const connected = broken ? window.__connected.find((c) => c >= fault) : wake;
+      return connected === undefined ? null : window.__bitmaps.find((b) => b > Math.max(connected, wake)) ?? null;
+    }, {fault: faultAt, wake: wakeAt, broken: mode !== 'none'});
+    if (recoveredAt === null) await page.waitForTimeout(50);
   }
+  if (recoveredAt !== null) await page.waitForTimeout(1500);
   const after = await page.evaluate((t) => window.__bitmaps.filter((b) => b > t).length, wakeAt);
   await page.close();
   breakSockets('kill');
