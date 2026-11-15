@@ -79,7 +79,7 @@ every tick (`--tick`, default 250 ms) sends each client one MESSAGE with a BORDE
 already has (empty if it has none). Block messages are binary frames (`application/octet-stream`) in
 the layout documented in `src/app/features/world-of-cells/grid-view/block-frame.ts`. Every block exists, so there is
 no NO_BLOCKS, and there are no heartbeats; the settings response carries no blocks, with `targetSpeed` set to `--tick`. The cells are random noise at `--density` (default 1/6). At `--block-size 2000` a FULL
-is about 450 KB of LZ4. Real worlds compress better, so socket costs here are an upper bound.
+is about 340 KB of zstd. Real worlds compress better, so socket costs here are an upper bound.
 
 The STOMP client runs in a worker, so the page can't hook its socket directly. `server.mjs` prepends
 `client/worker-hook.js` to every `worker-*.js` the build serves. In the worker that owns the socket,
