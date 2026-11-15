@@ -67,8 +67,8 @@ function compress(raw) {
   return zlib.zstdCompressSync(raw, {params: {[zlib.constants.ZSTD_c_compressionLevel]: 3}});
 }
 
-// Cell by cell, so it reads plainly rather than fast: the strips, then per run of live bytes down a strip a varint of
-// the empty bytes before it, its bytes and a zero.
+// Cell by cell, so it reads plainly rather than fast: the strips, then a zero for no copied rows and per run of live
+// bytes down a strip a varint of the empty bytes before it, its bytes and a zero.
 function fullPayload(raw, blockSize) {
   const columns = Math.ceil(blockSize / 8), strips = new Uint8Array(Math.ceil(blockSize / 64) * 64 * columns);
   for (let x = 0; x < blockSize; x++) {
@@ -77,7 +77,7 @@ function fullPayload(raw, blockSize) {
       if ((raw[cell >>> 3] >> (cell & 7)) & 1) strips[((x >> 6) * columns + (y >> 3)) * 64 + (x & 63)] |= 1 << (y & 7);
     }
   }
-  const runs = [];
+  const runs = [0];
   for (let i = 0, end = 0; i < strips.length;) {
     if (!strips[i]) { i++; continue; }
     let gap = i - end;
