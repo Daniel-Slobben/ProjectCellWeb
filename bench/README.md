@@ -79,7 +79,7 @@ every tick (`--tick`, default 250 ms) sends each client one MESSAGE with a BORDE
 already has (empty if it has none). Block messages are binary frames (`application/octet-stream`) in
 the layout documented in `src/app/features/world-of-cells/grid-view/block-frame.ts`. Every block exists, so there is
 no NO_BLOCKS, and there are no heartbeats; the settings response carries no blocks, with `targetSpeed` set to `--tick`. The cells are random noise at `--density` (default 1/6). At `--block-size 2000` a FULL
-is about 340 KB of zstd. Real worlds compress better, so socket costs here are an upper bound.
+is about 365 KB. Real worlds compress better, so socket costs here are an upper bound.
 
 The STOMP client runs in a worker, so the page can't hook its socket directly. `server.mjs` prepends
 `client/worker-hook.js` to every `worker-*.js` the build serves. In the worker that owns the socket,
@@ -110,6 +110,13 @@ naive neighbour count on the inner cells, and must be byte-identical to the base
 is written, as the worker does. Timing is the median ms per generation of a 2000² block at density
 1/6, with the two versions interleaved. The default baseline, b66d5cb, is the client's earlier
 column-sum algorithm.
+
+## FULL block decoding (`bench/full-block/`)
+
+`node bench/full-block/run.mjs --data <dir>` checks `readStrips` on FULL blocks of real chaos hits and times it
+against zstd of the rows, as the backend sent FULL blocks before strips. Add `--browsers chrome,firefox,webkit` to
+time it in each browser too (headless). CellService's `FullBlockChaosTest` writes the blocks, both ways and per
+age of the hit, with `-Dchaos.write=<dir>`; its Javadoc has the command.
 
 ## Socket frames (`bench/ws-frames.mjs`)
 

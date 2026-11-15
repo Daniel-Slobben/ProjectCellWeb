@@ -1,6 +1,6 @@
 import {ZSTDDecoder} from 'zstddec';
 import {getKey} from './utils.component';
-import {BORDER, FramedBlock, FULL, readBlockFrame} from './block-frame';
+import {BORDER, FramedBlock, FULL, readBlockFrame, readStrips} from './block-frame';
 
 let blockSize: number;
 
@@ -69,7 +69,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     const key = getKey(block.x, block.y);
 
     if (block.type === FULL) {
-      encodedBlocks.set(key, decompress(block.cells, Math.ceil(blockSize * blockSize / 8)));
+      encodedBlocks.set(key, decodeFull(block.cells));
       blockGenerationMap.set(key, block.generation);
       for (const border of takeEarlyBorders(key, block.generation)) {
         stepWithBorder(key, border);
@@ -463,6 +463,15 @@ function transposeColumn(packed: Uint8Array, pixels: Int32Array, x: number): voi
 /** The packed bits of a block (column-major: bit[x * blockSize + y]) or its border, zstd compressed. */
 function decompress(compressedBytes: Uint8Array, size: number): Uint8Array {
   return zstd.decode(compressedBytes, size);
+}
+
+/**
+ * The packed bits of a FULL block. A frame of exactly that many bytes holds the bits themselves, from a backend before
+ * strips.
+ */
+function decodeFull(payload: Uint8Array): Uint8Array {
+  const bytes = zstd.decode(payload);
+  return bytes.length === Math.ceil(blockSize * blockSize / 8) ? bytes : readStrips(bytes, blockSize);
 }
 
 function getBit(bits: Uint8Array, i: number): boolean {
