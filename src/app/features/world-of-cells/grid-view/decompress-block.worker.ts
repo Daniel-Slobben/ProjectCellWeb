@@ -1,4 +1,3 @@
-import {decompressBlock} from 'lz4js';
 import {ZSTDDecoder} from 'zstddec';
 import {getKey} from './utils.component';
 import {BORDER, FramedBlock, FULL, readBlockFrame} from './block-frame';
@@ -461,16 +460,9 @@ function transposeColumn(packed: Uint8Array, pixels: Int32Array, x: number): voi
   }
 }
 
-/**
- * The packed bits of a block (column-major: bit[x * blockSize + y]) or its border. The backend compresses them with
- * zstd; LZ4 comes from a backend that is not updated yet.
- */
+/** The packed bits of a block (column-major: bit[x * blockSize + y]) or its border, zstd compressed. */
 function decompress(compressedBytes: Uint8Array, size: number): Uint8Array {
-  const zstdMagic = [0x28, 0xb5, 0x2f, 0xfd];
-  if (zstdMagic.every((b, i) => compressedBytes[i] === b)) return zstd.decode(compressedBytes, size);
-  const bits = new Uint8Array(size);
-  decompressBlock(compressedBytes, bits, 0, compressedBytes.length, 0);
-  return bits;
+  return zstd.decode(compressedBytes, size);
 }
 
 function getBit(bits: Uint8Array, i: number): boolean {
