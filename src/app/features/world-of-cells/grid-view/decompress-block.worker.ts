@@ -1,4 +1,4 @@
-import {decompressBlock} from 'lz4js';
+import {ZSTDDecoder} from 'zstddec';
 import {getKey} from './utils.component';
 import {BORDER, FramedBlock, FULL, readBlockFrame} from './block-frame';
 
@@ -13,6 +13,9 @@ const earlyBorders = new Map<string, FramedBlock[]>();
 // a safety cap, about 25 seconds of ticks
 const maxEarlyBorders = 50;
 
+const zstd = new ZSTDDecoder();
+const zstdReady = zstd.init();
+
 let queue = Promise.resolve();
 
 globalThis.onmessage = function (e: any) {
@@ -22,6 +25,7 @@ globalThis.onmessage = function (e: any) {
 async function handleMessage({type, batchId, payload}: any): Promise<void> {
   const results: any[] = [];
   try {
+    await zstdReady;
     await decodeBatch(type, payload, results);
   } catch (err) {
     console.error(err);
@@ -65,7 +69,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     const key = getKey(block.x, block.y);
 
     if (block.type === FULL) {
-      encodedBlocks.set(key, decodeLz4BlockToByteArray(block.cells, blockSize));
+      encodedBlocks.set(key, decompress(block.cells, Math.ceil(blockSize * blockSize / 8)));
       blockGenerationMap.set(key, block.generation);
       for (const border of takeEarlyBorders(key, block.generation)) {
         stepWithBorder(key, border);
@@ -456,12 +460,9 @@ function transposeColumn(packed: Uint8Array, pixels: Int32Array, x: number): voi
   }
 }
 
-function decodeLz4BlockToByteArray(compressedBytes: Uint8Array, blockSize: number): Uint8Array {
-  // LZ4 decompress → packed bits (column-major: bit[x * blockSize + y])
-  const packedBits = new Uint8Array(Math.ceil(blockSize * blockSize / 8));
-  decompressBlock(compressedBytes, packedBits, 0, compressedBytes.length, 0);
-
-  return packedBits;
+/** The packed bits of a block (column-major: bit[x * blockSize + y]) or its border, zstd compressed. */
+function decompress(compressedBytes: Uint8Array, size: number): Uint8Array {
+  return zstd.decode(compressedBytes, size);
 }
 
 function getBit(bits: Uint8Array, i: number): boolean {
@@ -479,8 +480,7 @@ function setBit(bits: Uint8Array, i: number, value: boolean): void {
  */
 function writeBorder(compressedBytes: Uint8Array, blockBits: Uint8Array): void {
   const totalBits = blockSize * 4 - 4;
-  const borderBits = new Uint8Array(Math.ceil(totalBits / 8));
-  decompressBlock(compressedBytes, borderBits, 0, compressedBytes.length, 0);
+  const borderBits = decompress(compressedBytes, Math.ceil(totalBits / 8));
 
   const last = blockSize - 1;
   let index = 0;

@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {execSync} from 'node:child_process';
-import {createRequire} from 'node:module';
+import zlib from 'node:zlib';
 import {fileURLToPath} from 'node:url';
 
 const benchDir = path.dirname(fileURLToPath(import.meta.url));
@@ -29,7 +29,6 @@ const projectDir = path.resolve(benchDir, '..');
 const defaultDist = path.join(projectDir, 'dist/CellWeb/browser');
 const clientDir = path.join(benchDir, 'client');
 const resultsDir = path.join(benchDir, 'results');
-const lz4 = createRequire(import.meta.url)('lz4js');
 
 export function parseArgs(argv, defaults) {
   const out = {...defaults};
@@ -47,7 +46,7 @@ export function parseArgs(argv, defaults) {
 
 export const serverDefaults = {port: 4300, tick: 250, blockSize: 2000, density: 1 / 6, dist: '', quiet: false, pattern: 'noise'};
 
-// --- payloads: LZ4 block (no frame) -> base64, like the backend ---
+// --- payloads: zstd frames at level 3, like the backend ---
 
 function mulberry32(seed) {
   return () => {
@@ -65,17 +64,7 @@ function randomBits(nBits, density, rnd) {
 }
 
 function compress(raw) {
-  const dst = new Uint8Array(lz4.compressBound(raw.length));
-  const n = lz4.compressBlock(raw, dst, 0, raw.length, new Uint32Array(1 << 16));
-  if (n > 0) return Buffer.from(dst.subarray(0, n));
-  // lz4js gives up on input without matches; emit a literal-only block like lz4-java would.
-  const head = [Math.min(raw.length, 15) << 4];
-  if (raw.length >= 15) {
-    let rest = raw.length - 15;
-    for (; rest >= 255; rest -= 255) head.push(255);
-    head.push(rest);
-  }
-  return Buffer.concat([Buffer.from(head), Buffer.from(raw)]);
+  return zlib.zstdCompressSync(raw, {params: {[zlib.constants.ZSTD_c_compressionLevel]: 3}});
 }
 
 // Cells are column-major (bit x * blockSize + y): 0xff fills even columns, 0x55 even rows.
@@ -222,7 +211,7 @@ export async function startServer(options = {}) {
   const t0 = Date.now();
   const payloads = opts.pattern === 'lines' ? linePayloads(opts.blockSize) : makePayloads(opts.blockSize, opts.density);
   log(`payloads for blockSize ${opts.blockSize}, density ${opts.density.toFixed(3)}: FULL ~${Math.round(payloads.full[0].length / 1024)} KB, ` +
-    `BORDER ~${Math.round((payloads.border[0]?.length ?? 0) / 1024 * 10) / 10} KB of LZ4 (${Date.now() - t0} ms)`);
+    `BORDER ~${Math.round((payloads.border[0]?.length ?? 0) / 1024 * 10) / 10} KB of zstd (${Date.now() - t0} ms)`);
 
   // Start a quarter into a block, far from the origin.
   const home = {worldX: 50 * opts.blockSize + opts.blockSize / 4, worldY: 50 * opts.blockSize + opts.blockSize / 4};
