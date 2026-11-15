@@ -324,6 +324,10 @@ export class BlockService implements OnDestroy {
     this.dropDelayed(() => true);
     this.delayedBorders = [];
 
+    // The server sends nothing for blocks that were pruned meanwhile, so their old picture would stay.
+    for (const bitmap of this.blockData.values()) bitmap?.close();
+    this.blockData.clear();
+
     this.publishedBlocks.clear();
     this.noEditKey = undefined;
     this.generation++;
