@@ -48,3 +48,28 @@ export function readBlockFrame(frame: Uint8Array): FramedBlock[] {
   }
   return blocks;
 }
+
+/**
+ * The packed bits of a FULL block, bit x * size + y, from its zstd frame unpacked. The backend lays the cells out as bytes
+ * of 8 cells of a row, bit k for column 8c + k, in strips 64 rows tall, so byte (x, c) is at
+ * (x / 64 * columns + c) * 64 + x % 64. Per run of live bytes down a strip it sends a varint of the empty bytes before
+ * the run, its bytes and a zero.
+ */
+export function readStrips(runs: Uint8Array, size: number): Uint8Array {
+  const columns = (size + 7) >> 3;
+  const bits = new Uint8Array(Math.ceil(size * size / 8));
+  for (let i = 0, position = 0; i < runs.length; i++) {
+    for (let shift = 0; ; shift += 7) {
+      position += (runs[i] & 0x7f) << shift;
+      if (runs[i++] < 0x80) break;
+    }
+    const strip = position >> 6, c = strip % columns;
+    for (let x = (strip - c) / columns * 64 + (position & 63); runs[i] !== 0; i++, x++, position++) {
+      const bit = x * size + 8 * c;
+      bits[bit >> 3] |= runs[i] << (bit & 7);
+      // a row that starts inside a byte, only in worlds whose size is no multiple of 8
+      if (bit & 7) bits[(bit >> 3) + 1] |= runs[i] >> (8 - (bit & 7));
+    }
+  }
+  return bits;
+}

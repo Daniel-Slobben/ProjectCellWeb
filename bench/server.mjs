@@ -46,7 +46,7 @@ export function parseArgs(argv, defaults) {
 
 export const serverDefaults = {port: 4300, tick: 250, blockSize: 2000, density: 1 / 6, dist: '', quiet: false, pattern: 'noise'};
 
-// --- payloads: zstd frames at level 3, like the backend ---
+// --- payloads: zstd frames at level 3 like the backend's, FULL as runs of strips (readStrips in block-frame.ts) ---
 
 function mulberry32(seed) {
   return () => {
@@ -67,18 +67,41 @@ function compress(raw) {
   return zlib.zstdCompressSync(raw, {params: {[zlib.constants.ZSTD_c_compressionLevel]: 3}});
 }
 
+// Cell by cell, so it reads plainly rather than fast: the strips, then per run of live bytes down a strip a varint of
+// the empty bytes before it, its bytes and a zero.
+function fullPayload(raw, blockSize) {
+  const columns = Math.ceil(blockSize / 8), strips = new Uint8Array(Math.ceil(blockSize / 64) * 64 * columns);
+  for (let x = 0; x < blockSize; x++) {
+    for (let y = 0; y < blockSize; y++) {
+      const cell = x * blockSize + y;
+      if ((raw[cell >>> 3] >> (cell & 7)) & 1) strips[((x >> 6) * columns + (y >> 3)) * 64 + (x & 63)] |= 1 << (y & 7);
+    }
+  }
+  const runs = [];
+  for (let i = 0, end = 0; i < strips.length;) {
+    if (!strips[i]) { i++; continue; }
+    let gap = i - end;
+    for (; gap >= 0x80; gap >>>= 7) runs.push((gap & 0x7f) | 0x80);
+    runs.push(gap);
+    do runs.push(strips[i++]); while (i % 64 && strips[i]);
+    runs.push(0);
+    end = i;
+  }
+  return compress(Uint8Array.from(runs));
+}
+
 // Cells are column-major (bit x * blockSize + y): 0xff fills even columns, 0x55 even rows.
 function linePayloads(blockSize) {
   const vertical = new Uint8Array(blockSize * blockSize / 8);
   for (let x = 0; x < blockSize; x += 2) vertical.fill(0xff, x * blockSize / 8, (x + 1) * blockSize / 8);
   const horizontal = new Uint8Array(blockSize * blockSize / 8).fill(0x55);
-  return {full: [compress(vertical), compress(horizontal)], border: []};
+  return {full: [fullPayload(vertical, blockSize), fullPayload(horizontal, blockSize)], border: []};
 }
 
 function makePayloads(blockSize, density) {
   const rnd = mulberry32(1234);
   const full = [], border = [];
-  for (let i = 0; i < 8; i++) full.push(compress(randomBits(blockSize * blockSize, density, rnd)));
+  for (let i = 0; i < 8; i++) full.push(fullPayload(randomBits(blockSize * blockSize, density, rnd), blockSize));
   for (let i = 0; i < 16; i++) border.push(compress(randomBits(blockSize * 4 - 4, density, rnd)));
   return {full, border};
 }
