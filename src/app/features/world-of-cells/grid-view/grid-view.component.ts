@@ -15,12 +15,7 @@ import {finalize, retry, Subscription, timeout} from 'rxjs';
 import {ViewCenter} from '../../../shared/view-center';
 import {ArrowIconComponent} from '../../../shared/icons/arrow-icon.component';
 import {DisplaySettings} from '../../../shared/display-settings';
-
-interface View {
-  cellOffsetX: number;
-  cellOffsetY: number;
-  cellSize: number;
-}
+import {View, Viewport} from './viewport';
 
 @Component({
   selector: 'grid-view',
@@ -34,14 +29,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   protected blockSize: number = 500;
-  private cellSize = 2.5;
-  private readonly minCellSize: number = 0.1
-  private readonly maxCellSize: number = 30;
-  private canvasWidth = window.innerWidth;
-  private canvasHeight = window.innerHeight - 30;
-
-  protected cellOffsetX = 0;
-  protected cellOffsetY = 0;
+  private viewport!: Viewport;
 
   // Visited views; Previous and Next step through them and fetch a new viewport past either end.
   private readonly views: View[] = [];
@@ -50,21 +38,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private ctx!: CanvasRenderingContext2D;
 
   private drawnGeneration = 0;
-  private drawnCellOffsetX = 0;
-  private drawnCellOffsetY = 0;
-
-  // Drag state
-  private isDragging = false;
-  private dragStartX = 0;
-  private dragStartY = 0;
-
-  // Touch states (for mobile panning and zooming
-  private isPinching = false;
-  private lastTouchDistance = 0;
+  private drawnVersion = 0;
 
   private animationFrameId?: number;
-
-  public selectedBlock: { x: number; y: number } | null = null;
 
   private readonly requestTimeoutMs = 5000;
   // Retries wait this long, so clients don't keep hammering a server that is struggling.
@@ -88,12 +64,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }
 
     this.ctx = this.canvasRef.nativeElement.getContext('2d')!;
+    this.viewport = new Viewport(this.canvasRef.nativeElement, (step) => this.stepView(step));
     this.resizeCanvas();
     window.addEventListener('resize', this.resizeCanvas);
 
     this.loadSettings();
 
-    this.setupCanvasEvents();
     this.startRenderLoop();
 
     document.addEventListener('visibilitychange', this.onVisibilityChange);
@@ -119,7 +95,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     if (target >= 0 && target < this.views.length) {
       this.saveView();
       this.viewIndex = target;
-      ({cellOffsetX: this.cellOffsetX, cellOffsetY: this.cellOffsetY, cellSize: this.cellSize} = this.views[target]);
+      this.viewport.view = this.views[target];
       return;
     }
 
@@ -127,10 +103,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       this.saveView();
       this.goToViewport(viewport);
       if (step === 1) {
-        this.views.push(this.currentView());
+        this.views.push(this.viewport.view);
         this.viewIndex = this.views.length - 1;
       } else {
-        this.views.unshift(this.currentView());
+        this.views.unshift(this.viewport.view);
         this.viewIndex = 0;
       }
     });
@@ -138,16 +114,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   private goToViewport(viewport: Coordinates): void {
     this.recentViewports = [...this.recentViewports, viewport].slice(-5);
-    this.centerOn(viewport.x, viewport.y);
+    this.viewport.centerOn(viewport.x, viewport.y);
   }
 
   // Keeps pans and zooms made since arriving at the current view.
   private saveView(): void {
-    this.views[this.viewIndex] = this.currentView();
-  }
-
-  private currentView(): View {
-    return {cellOffsetX: this.cellOffsetX, cellOffsetY: this.cellOffsetY, cellSize: this.cellSize};
+    this.views[this.viewIndex] = this.viewport.view;
   }
 
   private readonly onVisibilityChange = () => {
@@ -184,19 +156,16 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }
 
     clearTimeout(this.disconnectTimer);
+    this.viewport.destroy();
     this.noBlocksSubscription?.unsubscribe();
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('resize', this.resizeCanvas);
   }
 
-  // Fills the window, keeping the cell in the middle of the view where it is.
   private readonly resizeCanvas = () => {
     const width = window.innerWidth;
     const height = window.innerHeight - 30;
-    this.cellOffsetX += (this.canvasWidth - width) / this.cellSize / 2;
-    this.cellOffsetY += (this.canvasHeight - height) / this.cellSize / 2;
-    this.canvasWidth = width;
-    this.canvasHeight = height;
+    this.viewport.resize(width, height);
 
     const ratio = Math.ceil(window.devicePixelRatio);
     const canvas = this.ctx.canvas;
@@ -212,6 +181,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   private startRenderLoop() {
     const render = () => {
+      this.viewport.moveByKeys();
       this.updateVisibleBlocks();
       this.animationFrameId = requestAnimationFrame(render);
     };
@@ -219,30 +189,30 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private updateVisibleBlocks() {
-    if (this.drawnGeneration == this.blockService.getGeneration() && this.drawnCellOffsetX == this.cellOffsetX && this.drawnCellOffsetY == this.cellOffsetY) {
+    if (this.drawnGeneration == this.blockService.getGeneration() && this.drawnVersion == this.viewport.version) {
       return;
     }
-    this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
+    const {cellOffsetX, cellOffsetY, cellSize, width, height} = this.viewport;
+    this.ctx.clearRect(0, 0, width, height);
 
-    const requestBottomX = Math.floor(this.cellOffsetX % this.blockSize) < this.blockSize / 2 ? 1 : 0;
-    const requestTopX = Math.floor(this.cellOffsetX % this.blockSize) < this.blockSize / 2 ? 1 : 0;
-    const requestBottomY = Math.floor(this.cellOffsetY % this.blockSize) < this.blockSize / 2 ? 1 : 0;
-    const requestTopY = Math.floor(this.cellOffsetY % this.blockSize) < this.blockSize / 2 ? 1 : 0;
+    const requestBottomX = Math.floor(cellOffsetX % this.blockSize) < this.blockSize / 2 ? 1 : 0;
+    const requestTopX = Math.floor(cellOffsetX % this.blockSize) < this.blockSize / 2 ? 1 : 0;
+    const requestBottomY = Math.floor(cellOffsetY % this.blockSize) < this.blockSize / 2 ? 1 : 0;
+    const requestTopY = Math.floor(cellOffsetY % this.blockSize) < this.blockSize / 2 ? 1 : 0;
 
     this.drawnGeneration = this.blockService.getGeneration();
-    this.drawnCellOffsetX = this.cellOffsetX;
-    this.drawnCellOffsetY = this.cellOffsetY;
+    this.drawnVersion = this.viewport.version;
 
-    const centerCellX = Math.floor(this.cellOffsetX + (this.canvasWidth / this.cellSize) / 2);
-    const centerCellY = Math.floor(this.cellOffsetY + (this.canvasHeight / this.cellSize) / 2);
+    const centerCellX = Math.floor(cellOffsetX + (width / cellSize) / 2);
+    const centerCellY = Math.floor(cellOffsetY + (height / cellSize) / 2);
 
     this.viewCenter.x.set(centerCellX);
     this.viewCenter.y.set(centerCellY);
 
-    const startBlockX = Math.floor(this.cellOffsetX / this.blockSize);
-    const startBlockY = Math.floor(this.cellOffsetY / this.blockSize);
-    const endBlockX = Math.floor((this.cellOffsetX + this.canvasWidth / this.cellSize) / this.blockSize);
-    const endBlockY = Math.floor((this.cellOffsetY + this.canvasHeight / this.cellSize) / this.blockSize);
+    const startBlockX = Math.floor(cellOffsetX / this.blockSize);
+    const startBlockY = Math.floor(cellOffsetY / this.blockSize);
+    const endBlockX = Math.floor((cellOffsetX + width / cellSize) / this.blockSize);
+    const endBlockY = Math.floor((cellOffsetY + height / cellSize) / this.blockSize);
 
     const currentVisibleBlocks = new Set<string>();
     const drawnBlocks: {x: number, y: number}[] = [];
@@ -262,12 +232,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.blockService.setRendering({
       poolFactor: this.poolFactorForZoom(), alive: this.settings.alive(), dead: this.settings.dead(), gamma: this.settings.gamma(),
     }, drawnBlocks);
-
-    if (this.selectedBlock != undefined) {
-      const offscreen = document.createElement('canvas');
-      offscreen.width = this.blockSize;
-      offscreen.height = this.blockSize;
-    }
   }
 
   private drawBlockWithImageData(blockX: number, blockY: number) {
@@ -275,13 +239,14 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     if (!imageData) {
       return;
     }
+    const {cellOffsetX, cellOffsetY, cellSize} = this.viewport;
 
     const baseX = blockX * this.blockSize;
     const baseY = blockY * this.blockSize;
 
-    const blockCanvasX = (baseX - this.cellOffsetX) * this.cellSize;
-    const blockCanvasY = (baseY - this.cellOffsetY) * this.cellSize;
-    const blockPixelSize = this.blockSize * this.cellSize;
+    const blockCanvasX = (baseX - cellOffsetX) * cellSize;
+    const blockCanvasY = (baseY - cellOffsetY) * cellSize;
+    const blockPixelSize = this.blockSize * cellSize;
 
     // Between 1 and 2 device pixels per cell, nearest-neighbour makes cells 1 or 2 pixels wide, which
     // turns fine patterns into bands. Below 1 the bitmap is pooled to 1-2 pixels per pooled cell.
@@ -303,7 +268,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   // In physical pixels, matching the ratio the canvas is scaled by.
   private devicePixelsPerCell(): number {
-    return this.cellSize * Math.ceil(window.devicePixelRatio);
+    return this.viewport.cellSize * Math.ceil(window.devicePixelRatio);
   }
 
   private poolFactorForZoom(): number {
@@ -313,158 +278,5 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }
     // Never shrink a bitmap: each pooled pixel covers 1–2 device pixels, so fine patterns average to grey instead of moiré.
     return Math.pow(2, Math.ceil(Math.log2(1 / devicePixelsPerCell)));
-  }
-
-  private readonly onClick = (e: MouseEvent) => {
-    if (e.detail === 1) {
-      this.startDragging(e);
-    }
-  };
-
-  private startDragging(e: MouseEvent) {
-    this.isDragging = true;
-    this.dragStartX = e.clientX;
-    this.dragStartY = e.clientY;
-    this.canvasRef.nativeElement.style.cursor = 'grabbing';
-  }
-
-  private readonly onDragEnd = () => {
-    this.isDragging = false;
-    this.canvasRef.nativeElement.style.cursor = 'grab';
-  };
-
-  private readonly onDragMove = (e: MouseEvent) => {
-    if (!this.isDragging) return;
-
-    const dx = e.clientX - this.dragStartX;
-    const dy = e.clientY - this.dragStartY;
-
-    this.dragStartX = e.clientX;
-    this.dragStartY = e.clientY;
-
-    // Convert pixel movement to cell movement
-    const movedX = dx / this.cellSize;
-    const movedY = dy / this.cellSize;
-
-    this.cellOffsetX -= movedX;
-    this.cellOffsetY -= movedY;
-  };
-
-  private readonly onWheel = (e: WheelEvent) => {
-    e.preventDefault();
-    const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05;
-
-    this.zoomAt(e.clientX, e.clientY, zoomFactor);
-  };
-
-  private zoomAt(clientX: number, clientY: number, zoomFactor: number) {
-    const newCellSize = this.cellSize * zoomFactor;
-
-    // Limit zoom range
-    if (newCellSize >= this.minCellSize && newCellSize <= this.maxCellSize) {
-      // Zoom towards the mouse position
-      const rect = this.canvasRef.nativeElement.getBoundingClientRect();
-      const mouseX = clientX - rect.left;
-      const mouseY = clientY - rect.top;
-
-      // Calculate world coordinates of mouse
-      const worldX = this.cellOffsetX + mouseX / this.cellSize;
-      const worldY = this.cellOffsetY + mouseY / this.cellSize;
-
-      this.cellSize = newCellSize;
-
-      // Adjust offset to keep the mouse position stable
-      this.cellOffsetX = worldX - mouseX / this.cellSize;
-      this.cellOffsetY = worldY - mouseY / this.cellSize;
-    }
-  }
-
-  private getTouchDistance(touches: TouchList): number {
-    const dx = touches[0].clientX - touches[1].clientX;
-    const dy = touches[0].clientY - touches[1].clientY;
-    return Math.hypot(dx, dy);
-  }
-
-  private getTouchMidpoint(touches: TouchList): { x: number; y: number } {
-    return {
-      x: (touches[0].clientX + touches[1].clientX) / 2, y: (touches[0].clientY + touches[1].clientY) / 2,
-    };
-  }
-
-  private readonly onTouchStart = (e: TouchEvent) => {
-    e.preventDefault();
-
-    if (e.touches.length === 1) {
-      this.isDragging = true;
-      this.isPinching = false;
-      this.dragStartX = e.touches[0].clientX;
-      this.dragStartY = e.touches[0].clientY;
-    } else if (e.touches.length === 2) {
-      this.isDragging = false;
-      this.isPinching = true;
-      this.lastTouchDistance = this.getTouchDistance(e.touches);
-    }
-  };
-
-  private readonly onTouchMove = (e: TouchEvent) => {
-    e.preventDefault();
-
-    if (this.isPinching && e.touches.length === 2) {
-      const newDistance = this.getTouchDistance(e.touches);
-      const mid = this.getTouchMidpoint(e.touches);
-
-      const zoomFactor = newDistance / this.lastTouchDistance;
-      this.zoomAt(mid.x, mid.y, zoomFactor);
-
-      this.lastTouchDistance = newDistance;
-    } else if (this.isDragging && e.touches.length === 1) {
-      const touch = e.touches[0];
-      const dx = touch.clientX - this.dragStartX;
-      const dy = touch.clientY - this.dragStartY;
-      this.dragStartX = touch.clientX;
-      this.dragStartY = touch.clientY;
-
-      const movedX = dx / this.cellSize;
-      const movedY = dy / this.cellSize;
-      this.cellOffsetX -= movedX;
-      this.cellOffsetY -= movedY;
-    }
-  };
-
-  private readonly onTouchEnd = (e: TouchEvent) => {
-    e.preventDefault();
-
-    if (e.touches.length === 0) {
-      this.isDragging = false;
-      this.isPinching = false;
-    } else if (e.touches.length === 1) {
-      this.isPinching = false;
-      this.isDragging = true;
-      this.dragStartX = e.touches[0].clientX;
-      this.dragStartY = e.touches[0].clientY;
-    }
-  };
-
-  private setupCanvasEvents() {
-    const canvas = this.canvasRef.nativeElement;
-    canvas.style.cursor = 'grab';
-
-    // Mouse
-    canvas.addEventListener('mousedown', this.onClick);
-    canvas.addEventListener('mouseup', this.onDragEnd);
-    canvas.addEventListener('mouseleave', this.onDragEnd);
-    canvas.addEventListener('mousemove', this.onDragMove);
-    canvas.addEventListener('wheel', this.onWheel, {passive: false});
-
-    // Touch
-    canvas.addEventListener('touchstart', this.onTouchStart, {passive: false});
-    canvas.addEventListener('touchmove', this.onTouchMove, {passive: false});
-    canvas.addEventListener('touchend', this.onTouchEnd, {passive: false});
-    canvas.addEventListener('touchcancel', this.onTouchEnd, {passive: false});
-  }
-
-  public centerOn(worldX: number, worldY: number) {
-    this.cellOffsetX = worldX - (this.canvasWidth / this.cellSize) / 2;
-    this.cellOffsetY = worldY - (this.canvasHeight / this.cellSize) / 2;
   }
 }
