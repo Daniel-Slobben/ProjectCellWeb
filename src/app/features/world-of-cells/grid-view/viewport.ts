@@ -32,8 +32,10 @@ export class Viewport {
     KeyW: [0, -1], KeyA: [-1, 0], KeyS: [0, 1], KeyD: [1, 0],
     ArrowUp: [0, -1], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowRight: [1, 0],
   };
+  private readonly keyZooms: Record<string, number> = {Enter: 1, NumpadEnter: 1, ShiftLeft: -1, ShiftRight: -1};
   // Screen pixels, so held keys move as fast at every zoom.
   private readonly keyPanPxPerMs = 1;
+  private readonly keyZoomDoublingMs = 500;
   private readonly keysDown = new Set<string>();
   private lastKeyMoveAt = 0;
 
@@ -114,14 +116,19 @@ export class Viewport {
     const ms = Math.min(now - this.lastKeyMoveAt, 100);
     this.lastKeyMoveAt = now;
 
-    let x = 0, y = 0;
+    let x = 0, y = 0, zoom = 0;
     for (const code of this.keysDown) {
-      const [dx, dy] = this.keyDirections[code];
+      const [dx, dy] = this.keyDirections[code] ?? [0, 0];
       x += dx;
       y += dy;
+      zoom += this.keyZooms[code] ?? 0;
     }
     if (x !== 0 || y !== 0) {
       this.pan(-x * this.keyPanPxPerMs * ms, -y * this.keyPanPxPerMs * ms);
+    }
+    if (zoom !== 0) {
+      const rect = this.canvas.getBoundingClientRect();
+      this.zoomAt(rect.left + this.width / 2, rect.top + this.height / 2, 2 ** (zoom * ms / this.keyZoomDoublingMs));
     }
   }
 
@@ -251,8 +258,8 @@ export class Viewport {
     // Leave browser shortcuts and the settings sliders alone.
     if (e.ctrlKey || e.metaKey || e.altKey || e.target instanceof HTMLInputElement) return;
 
-    if (e.code in this.keyDirections) {
-      // Arrows would otherwise scroll the page.
+    if (e.code in this.keyDirections || e.code in this.keyZooms) {
+      // Arrows would otherwise scroll the page, and Enter press a focused button.
       e.preventDefault();
       this.keysDown.add(e.code);
     } else if (!e.repeat && (e.key === ',' || e.key === '<')) {
