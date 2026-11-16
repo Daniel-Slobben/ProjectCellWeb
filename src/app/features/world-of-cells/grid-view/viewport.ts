@@ -255,11 +255,12 @@ export class Viewport {
   };
 
   private readonly onKeyDown = (e: KeyboardEvent) => {
-    // Leave browser shortcuts and the settings sliders alone.
+    // Leave browser shortcuts, the settings sliders and Enter on a focused button alone.
     if (e.ctrlKey || e.metaKey || e.altKey || e.target instanceof HTMLInputElement) return;
+    if (e.key === 'Enter' && e.target instanceof HTMLButtonElement) return;
 
     if (e.code in this.keyDirections || e.code in this.keyZooms) {
-      // Arrows would otherwise scroll the page, and Enter press a focused button.
+      // Arrows would otherwise scroll the page.
       e.preventDefault();
       this.keysDown.add(e.code);
     } else if (!e.repeat && (e.key === ',' || e.key === '<')) {

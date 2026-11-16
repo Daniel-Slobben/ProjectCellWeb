@@ -16,4 +16,11 @@ export class AppComponent {
   protected readonly viewCenter = inject(ViewCenter);
   protected readonly coordinatesEm = computed(() =>
     4 + 0.75 * (String(this.viewCenter.x()).length + String(this.viewCenter.y()).length));
+
+  protected closeSettings(gear: HTMLElement) {
+    if (this.settingsOpen()) {
+      this.settingsOpen.set(false);
+      gear.focus();
+    }
+  }
 }

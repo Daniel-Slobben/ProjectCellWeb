@@ -1,4 +1,4 @@
-.w3-button.coordinates {
+.coordinates {
   white-space: nowrap;
   font-size: min(1em, calc((100vw - 120px) / var(--coordinates-em)));
 }
