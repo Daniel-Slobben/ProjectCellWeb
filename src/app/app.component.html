@@ -6,10 +6,10 @@
     </span>
     <button class="w3-bar-item w3-button w3-padding-large"
             (click)="settingsOpen.set(!settingsOpen())"
-            (document:keydown.escape)="settingsOpen.set(false)"
+            (document:keydown)="onKeyDown($event)"
             [class.selected]="settingsOpen()"
             [attr.aria-expanded]="settingsOpen()"
-            title="Settings" aria-label="Settings">
+            title="Settings (O)" aria-label="Settings" aria-keyshortcuts="O">
       <gear-icon></gear-icon>
     </button>
   </div>

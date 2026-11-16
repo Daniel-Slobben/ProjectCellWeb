@@ -16,4 +16,13 @@ export class AppComponent {
   protected readonly viewCenter = inject(ViewCenter);
   protected readonly coordinatesEm = computed(() =>
     4 + 0.75 * (String(this.viewCenter.x()).length + String(this.viewCenter.y()).length));
+
+  protected onKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      this.settingsOpen.set(false);
+    } else if ((e.key === 'o' || e.key === 'O') && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey
+        && !(e.target instanceof HTMLInputElement)) {
+      this.settingsOpen.update((open) => !open);
+    }
+  }
 }

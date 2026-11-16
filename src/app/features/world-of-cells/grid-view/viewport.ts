@@ -32,7 +32,7 @@ export class Viewport {
     KeyW: [0, -1], KeyA: [-1, 0], KeyS: [0, 1], KeyD: [1, 0],
     ArrowUp: [0, -1], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowRight: [1, 0],
   };
-  private readonly keyZooms: Record<string, number> = {Enter: 1, NumpadEnter: 1, ShiftLeft: -1, ShiftRight: -1};
+  private readonly keyZooms: Record<string, number> = {Equal: 1, NumpadAdd: 1, Minus: -1, NumpadSubtract: -1};
   // Screen pixels, so held keys move as fast at every zoom.
   private readonly keyPanPxPerMs = 1;
   private readonly keyZoomDoublingMs = 500;
@@ -255,11 +255,10 @@ export class Viewport {
   };
 
   private readonly onKeyDown = (e: KeyboardEvent) => {
-    // Escape also closes Settings, so focus returns to the world, where Enter zooms.
+    // Escape also closes Settings, so focus returns to the world.
     if (e.key === 'Escape') this.canvas.focus();
-    // Leave browser shortcuts, the settings sliders and Enter on a focused button alone.
+    // Leave browser shortcuts and the settings sliders alone.
     if (e.ctrlKey || e.metaKey || e.altKey || e.target instanceof HTMLInputElement) return;
-    if (e.key === 'Enter' && e.target instanceof HTMLButtonElement) return;
 
     if (e.code in this.keyDirections || e.code in this.keyZooms) {
       // Arrows would otherwise scroll the page.

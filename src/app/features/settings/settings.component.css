@@ -108,35 +108,3 @@ input[type="range"]::-moz-range-thumb {
   min-width: 3ch;
   text-align: right;
 }
-
-.keys {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 6px 16px;
-  margin: 0;
-  padding: 8px 24px;
-}
-
-.keys dd {
-  margin: 0;
-}
-
-kbd {
-  display: inline-block;
-  min-width: 1.6em;
-  margin-right: 4px;
-  padding: 0 4px;
-  text-align: center;
-  border: 1px solid currentColor;
-  font-family: inherit;
-}
-
-/* Read out by screen readers, which skip punctuation. */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
