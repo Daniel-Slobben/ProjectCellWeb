@@ -41,7 +41,7 @@ export class BlockService implements OnDestroy {
   public sectors = false;
   private publishedSectors = false;
   // A block that changes between cells and sectors, or gets new sectors, fades from its old picture to the new one.
-  private readonly fadeMs = 500;
+  private readonly fadeMs = 300;
   private readonly fades = new Map<string, {from: ImageBitmap, start: number}>();
   private readonly sectorKeys = new Set<string>();
 
