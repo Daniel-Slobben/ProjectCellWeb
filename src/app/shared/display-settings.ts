@@ -49,8 +49,9 @@ export class DisplaySettings {
   readonly dead = signal(THEMES[1].dead);
   // Zoomed out, how far a patch's share of alive cells moves it towards the alive colour: lower shows sparse life more.
   readonly gamma = signal(defaultGamma(THEMES[1]));
-  // For now, until a default is found: above this many blocks in view, blocks are drawn per sector. Not saved.
-  readonly sectorBlocks = signal(200);
+  // For now, until a default is found: once a sector of 50 by 50 cells is this many CSS pixels or smaller, blocks are
+  // drawn per sector. 1 is about 200 blocks in view on a phone; a 4K screen never zooms out that far. Not saved.
+  readonly sectorPixels = signal(1);
 
   constructor() {
     try {

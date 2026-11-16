@@ -29,6 +29,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridCanvas', {static: true}) canvasRef!: ElementRef<HTMLCanvasElement>;
 
   protected blockSize: number = 500;
+  // The backend's sectors, in cells.
+  private readonly sectorSize = 50;
   private viewport!: Viewport;
 
   // Visited views; Previous and Next step through them and fetch a new viewport past either end.
@@ -230,10 +232,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         }
       }
     }
-    // Back to cells a bit below the switch to sectors, so zooming around it does not switch back and forth.
-    const sectorBlocks = this.settings.sectorBlocks();
-    if (drawnBlocks.length > sectorBlocks) this.blockService.setSectors(true);
-    else if (drawnBlocks.length < 0.8 * sectorBlocks) this.blockService.setSectors(false);
+    // Sectors once they are small on screen. CSS pixels are about the same size on a phone and a monitor, so a sector
+    // at 1 px is as fine on either. Back to cells a bit above that, so zooming around it does not switch back and forth.
+    const sectorPixels = cellSize * this.sectorSize, switchPixels = this.settings.sectorPixels();
+    if (sectorPixels <= switchPixels) this.blockService.setSectors(true);
+    else if (sectorPixels > 1.1 * switchPixels) this.blockService.setSectors(false);
     this.blockService.updateVisible(currentVisibleBlocks);
     this.blockService.setRendering({
       poolFactor: this.poolFactorForZoom(), alive: this.settings.alive(), dead: this.settings.dead(), gamma: this.settings.gamma(),
