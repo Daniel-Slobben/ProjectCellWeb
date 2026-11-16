@@ -1,8 +1,10 @@
 <div class="section">Display</div>
-<button class="w3-button row" (click)="settings.borders.set(!settings.borders())">
+<button class="w3-button row" (click)="settings.borders.set(!settings.borders())"
+        [attr.aria-pressed]="settings.borders()">
   <span class="box" [class.on]="settings.borders()"></span> Borders
 </button>
-<button class="w3-button row" (click)="settings.smoothing.set(!settings.smoothing())">
+<button class="w3-button row" (click)="settings.smoothing.set(!settings.smoothing())"
+        [attr.aria-pressed]="settings.smoothing()">
   <span class="box" [class.on]="settings.smoothing()"></span> Smoothing
 </button>
 <label class="row" title="Zoomed out: lower shows sparse life more">
@@ -21,8 +23,9 @@
 <div class="section">Theme</div>
 <div class="themes">
   @for (theme of themes; track theme.name) {
+    @let selected = theme.alive === settings.alive() && theme.dead === settings.dead();
     <button class="w3-button row"
-            [class.selected]="theme.alive === settings.alive() && theme.dead === settings.dead()"
+            [class.selected]="selected" [attr.aria-pressed]="selected"
             (click)="settings.applyTheme(theme)">
       <span class="swatch" [style.--swatch-alive]="theme.alive" [style.--swatch-dead]="theme.dead"></span>
       {{ theme.name }}

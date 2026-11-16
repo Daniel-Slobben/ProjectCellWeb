@@ -87,6 +87,11 @@ button, input, select, textarea, optgroup { font: inherit; margin: 0; }
   align-items: center !important;
 }
 
+.w3-button:focus-visible {
+  outline: 2px solid var(--bar-text);
+  outline-offset: -2px;
+}
+
 .w3-button.selected {
   color: var(--bar) !important;
   background-color: var(--highlight) !important;

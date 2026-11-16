@@ -1,13 +1,15 @@
 <div [class]="'w3-top'">
   <div class="w3-bar w3-black w3-card centered-nav">
-    <button class="w3-bar-item w3-button w3-padding-large disabled coordinates"
-            [style.--coordinates-em]="coordinatesEm()">
+    <span class="w3-bar-item w3-padding-large coordinates"
+          [style.--coordinates-em]="coordinatesEm()">
       x: {{viewCenter.x()}} y: {{viewCenter.y()}}
-    </button>
+    </span>
     <button class="w3-bar-item w3-button w3-padding-large"
             (click)="settingsOpen.set(!settingsOpen())"
+            (document:keydown)="onKeyDown($event)"
             [class.selected]="settingsOpen()"
-            title="Settings" aria-label="Settings">
+            [attr.aria-expanded]="settingsOpen()"
+            title="Settings (O)" aria-label="Settings" aria-keyshortcuts="O">
       <gear-icon></gear-icon>
     </button>
   </div>
