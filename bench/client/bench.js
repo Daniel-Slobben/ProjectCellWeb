@@ -611,6 +611,17 @@
   let aborted = false;
   let running = null;
 
+  // A real mouse over the window would steer the app along with the scripted input: while a scenario runs, only
+  // synthetic events reach the canvas.
+  for (const type of ['pointerdown', 'mousedown', 'mousemove', 'mouseup', 'mouseleave', 'wheel', 'touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+    window.addEventListener(type, (e) => {
+      if (e.isTrusted && running && e.target === state.canvas) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }
+    }, {capture: true, passive: false});
+  }
+
   async function waitForApp() {
     for (let i = 0; i < 400 && !state.canvas; i++) {
       state.canvas = document.querySelector('grid-view canvas') ?? document.querySelector('canvas');
@@ -676,7 +687,7 @@
     const startedAt = new Date().toISOString();
     const runId = `${startedAt.slice(0, 19).replace(/[:T]/g, '-')}-${browserName()}${label ? '-' + label : ''}`;
     const meta = {runId, label, browser: browserName(), ua: navigator.userAgent, startedAt, commit: info.commit, dirty: info.dirty,
-      durationMs: ms, tickMs: info.tickMs, blockSize: info.blockSize, density: info.density};
+      durationMs: ms, tickMs: info.tickMs, blockSize: info.blockSize, pattern: info.pattern, density: info.density};
     writeQueue({runId, meta, ms, remaining: names});
     gotoNext();
   }

@@ -9,10 +9,11 @@ the input as DOM events on the canvas, and summarises each scenario.
 ## Run it
 
 ```sh
-npm run bench                                    # build, then the default set in a visible Chrome window
+npm run bench                                    # build, then the default set in a Chrome window
 npm run bench -- --browsers chrome,firefox,webkit --label baseline
 npm run bench -- --scenarios pan-min-fast,zoom-rapid --compare latest   # deltas vs the previous run
 npm run bench:serve                              # build, then serve on http://localhost:4300
+node bench/record.mjs                            # record world-of-cells.net again (see What the mock does)
 ```
 
 With `bench:serve`, open the URL in any browser and click **bench** in the top-left corner to pick
@@ -27,9 +28,13 @@ npx ng build --output-path /tmp/cells-variant
 node bench/run.mjs --dist=/tmp/cells-variant/browser --label variant --compare latest
 ```
 
-Keep the browser windows visible while they run, because an occluded window may throttle
-requestAnimationFrame. Close other heavy processes. Firefox in particular varies 20–30% from run to
-run, so interleave A/B runs rather than trusting one sample.
+Each browser gets one window, and the scenarios load one after another in it. On macOS the runner gives the
+focus back to the app that was in front as soon as the window is open, so you can keep typing; that app's windows
+may then cover the bench. Chrome, Firefox and WebKit all kept their frame rate when covered (Chrome's
+pan-min-fast and zoom-rapid matched a run in front; Firefox's zoom-rapid was 94–97 fps covered against 98–103 in
+front, within its noise). While a scenario runs, the page ignores real mouse, wheel and touch input on the canvas.
+Close other heavy processes. Firefox in particular varies 20–30% from run to run, so interleave A/B runs rather
+than trusting one sample.
 
 ## Scenarios
 
@@ -79,8 +84,20 @@ every tick (`--tick`, default 250 ms) sends each client one MESSAGE with a BORDE
 already has (empty if it has none). A client that asks for `sectors` gets one MESSAGE with a SECTOR for each of its
 blocks instead, on a `/client-update` and every 4 ticks. Block messages are binary frames (`application/octet-stream`) in
 the layout documented in `src/app/features/world-of-cells/grid-view/block-frame.ts`. Every block exists, so there is
-no NO_BLOCKS, and there are no heartbeats; the settings response carries no blocks, with `targetSpeed` set to `--tick`. The cells are random noise at `--density` (default 1/6). At `--block-size 2000` a FULL
-is about 365 KB. Real worlds compress better, so socket costs here are an upper bound.
+no NO_BLOCKS, and there are no heartbeats; the settings response carries no blocks, with `targetSpeed` set to `--tick`.
+
+The cells come from `recordings/world.bin`, a minute of world-of-cells.net recorded by `record.mjs`: 12×8
+blocks around the viewport `/gen-api/settings` handed out, of which 61 existed, with each block's FULL and the 120
+BORDERs that followed it. FULLs average 20 KB and BORDERs 0.2 KB. A block a client adds gets its recorded FULL,
+then the recorded BORDERs in order, from the start again after 120 ticks. The recorded rectangle repeats across the
+world, and blocks that didn't exist there are filled with ones that did. The settings send the recorded viewport and
+blockSize, so the app starts where the recording was made. SECTORs aren't recorded; they are random at `--density`.
+`node bench/record.mjs` overwrites the file with a fresh
+recording; `--blocks`, `--generations`, `--url` and `--out` change what it records and where it writes.
+
+`--pattern noise` serves random cells at `--density` (default 1/6) and `--block-size` instead, as the bench did
+before 2026-11-16: a FULL is then about 365 KB. Each run stores its pattern (the recording's time, `noise` or `lines`),
+and `--compare latest` only picks a baseline with the same one.
 
 The STOMP client runs in a worker, so the page can't hook its socket directly. `server.mjs` prepends
 `client/worker-hook.js` to every `worker-*.js` the build serves. In the worker that owns the socket,
