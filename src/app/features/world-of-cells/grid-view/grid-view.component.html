@@ -1,5 +1,7 @@
 <canvas
   #gridCanvas
+  role="img"
+  aria-label="The Game of Life world. Move with W, A, S and D or the arrow keys. Zoom in with Enter and out with Shift. Comma and period go to the previous and next view."
   [style.border]="'1px solid color-mix(in srgb, var(--dead) 80%, var(--alive))'"
   [style.display]="'block'"
   [style.background-color]="settings.dead()">
@@ -8,12 +10,12 @@
   <div class="w3-bar w3-black w3-card centered-nav">
     <button class="w3-bar-item w3-button w3-padding-large step"
             (click)="stepView(-1)"
-            title="Previous">
+            title="Previous view (,)" aria-label="Previous view" aria-keyshortcuts=",">
       <arrow-icon class="left"></arrow-icon>
     </button>
     <button class="w3-bar-item w3-button w3-padding-large step"
             (click)="stepView(1)"
-            title="Next">
+            title="Next view (.)" aria-label="Next view" aria-keyshortcuts=".">
       <arrow-icon></arrow-icon>
     </button>
   </div>
