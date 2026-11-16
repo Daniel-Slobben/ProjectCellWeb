@@ -53,7 +53,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
       const sectors = sectorBlocks.get(getKey(x, y));
       if (!data && !sectors) continue;
       const bitmap = await toBitmap(data ? decodeByteArrayToImageData(data) : sectorImageData(sectors!));
-      results.push({bitmap, x, y});
+      results.push({bitmap, sector: !data, x, y});
     }
     return;
   }
@@ -107,7 +107,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
       const bytes = zstd.decode(block.cells);
       const sectors = Uint16Array.from({length: bytes.length >> 1}, (_, i) => bytes[2 * i] | bytes[2 * i + 1] << 8);
       sectorBlocks.set(key, sectors);
-      results.push({bitmap: await toBitmap(sectorImageData(sectors)), x: block.x, y: block.y});
+      results.push({bitmap: await toBitmap(sectorImageData(sectors)), sector: true, x: block.x, y: block.y});
     } else {
       console.warn(`Unknown block type ${block.type} for ${key}`);
     }

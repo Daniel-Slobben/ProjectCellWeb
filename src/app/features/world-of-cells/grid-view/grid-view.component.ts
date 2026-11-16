@@ -189,7 +189,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private updateVisibleBlocks() {
-    if (this.drawnGeneration == this.blockService.getGeneration() && this.drawnVersion == this.viewport.version) {
+    const now = performance.now();
+    if (this.drawnGeneration == this.blockService.getGeneration() && this.drawnVersion == this.viewport.version
+      && !this.blockService.isFading(now)) {
       return;
     }
     const {cellOffsetX, cellOffsetY, cellSize, width, height} = this.viewport;
@@ -223,7 +225,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         const key = getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
-          this.drawBlockWithImageData(blockX, blockY);
+          this.drawBlockWithImageData(blockX, blockY, now);
           drawnBlocks.push({x: blockX, y: blockY});
         }
       }
@@ -238,8 +240,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }, drawnBlocks);
   }
 
-  private drawBlockWithImageData(blockX: number, blockY: number) {
-    let imageData = this.blockService.getBlock(getKey(blockX, blockY));
+  private drawBlockWithImageData(blockX: number, blockY: number, now: number) {
+    const key = getKey(blockX, blockY);
+    let imageData = this.blockService.getBlock(key);
     if (!imageData) {
       return;
     }
@@ -259,7 +262,15 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const ratio = Math.ceil(window.devicePixelRatio);
     const snap = (v: number) => Math.round(v * ratio) / ratio;
     const left = snap(blockCanvasX), top = snap(blockCanvasY);
-    this.ctx.drawImage(imageData, left, top, snap(blockCanvasX + blockPixelSize) - left, snap(blockCanvasY + blockPixelSize) - top);
+    const width = snap(blockCanvasX + blockPixelSize) - left, height = snap(blockCanvasY + blockPixelSize) - top;
+    // Bitmaps are opaque, so the new one drawn over the old one with alpha is a crossfade.
+    const fade = this.blockService.getFade(key, now);
+    if (fade) {
+      this.ctx.drawImage(fade.from, left, top, width, height);
+      this.ctx.globalAlpha = fade.progress;
+    }
+    this.ctx.drawImage(imageData, left, top, width, height);
+    this.ctx.globalAlpha = 1;
 
     if (this.settings.borders()) {
       this.ctx.lineWidth = 1;

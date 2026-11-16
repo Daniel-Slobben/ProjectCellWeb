@@ -11,7 +11,7 @@
 // the backend, it answers every /client-update with one MESSAGE per added block holding its FULL, and
 // every tick sends each client one MESSAGE with a BORDER for each block it already has (an empty one if
 // it has none). A client that asks for sectors gets all its blocks again as SECTORs, one message per
-// /client-update and every 10 ticks, and no FULLs or BORDERs. Block messages are binary frames (application/octet-stream) in the layout of
+// /client-update and every 4 ticks, and no FULLs or BORDERs. Block messages are binary frames (application/octet-stream) in the layout of
 // src/app/features/world-of-cells/grid-view/block-frame.ts. Every block exists, so it never sends
 // NO_BLOCKS, and it has no heartbeats: --pattern lines sends nothing per tick.
 // Cell content is random noise; only sizes and timing matter for drawing. --pattern lines serves
@@ -287,7 +287,7 @@ export async function startServer(options = {}) {
 
   const tick = () => {
     if (opts.pattern !== 'lines') worldGeneration++;
-    const sectorTick = ticks++ % 10 === 0;
+    const sectorTick = ticks++ % 4 === 0;
     for (const client of clients) {
       if (!ready(client)) continue;
       if (client.sectors) {

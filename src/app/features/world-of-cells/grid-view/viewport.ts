@@ -7,9 +7,9 @@ export interface View {
 /** The part of the world the canvas shows, and the mouse, touch and keyboard input that moves it. */
 export class Viewport {
   cellSize = 2.5;
-  // Zoomed out, a view holds at most as many cells as a 4K screen at 100% does at 2 px per sector of 50 cells, 0.04 px
-  // per cell: ~1300 blocks of 2000. That far out blocks are drawn per sector.
-  private readonly maxCellsInView = (3840 / 0.04) * (2160 / 0.04);
+  // Zoomed out, a view holds at most as many cells as a 4K screen at 100% does at 0.07 px per cell: ~420 blocks of 2000.
+  // That far out blocks are drawn per sector.
+  private readonly maxCellsInView = (3840 / 0.07) * (2160 / 0.07);
   private readonly maxCellSize: number = 30;
   width = window.innerWidth;
   height = window.innerHeight - 30;
