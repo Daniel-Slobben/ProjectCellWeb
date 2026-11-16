@@ -228,6 +228,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         }
       }
     }
+    // Back to cells a bit below the switch to sectors, so zooming around it does not switch back and forth.
+    const sectorBlocks = this.settings.sectorBlocks();
+    if (drawnBlocks.length > sectorBlocks) this.blockService.setSectors(true);
+    else if (drawnBlocks.length < 0.8 * sectorBlocks) this.blockService.setSectors(false);
     this.blockService.updateVisible(currentVisibleBlocks);
     this.blockService.setRendering({
       poolFactor: this.poolFactorForZoom(), alive: this.settings.alive(), dead: this.settings.dead(), gamma: this.settings.gamma(),

@@ -5,6 +5,7 @@
 
 export const FULL = 0;
 export const BORDER = 1;
+export const SECTOR = 2;
 
 const xOffset = 0;
 const yOffset = 4;

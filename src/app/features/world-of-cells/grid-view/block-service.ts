@@ -36,6 +36,9 @@ export class BlockService implements OnDestroy {
 
   public activeBlocks = new Set<string>();
   private publishedBlocks = new Set<string>();
+  // Zoomed far out the server sends the alive cells per sector of each block, every few ticks, instead of the cells.
+  public sectors = false;
+  private publishedSectors = false;
 
   private workers: Worker[] = [];
   private readonly workerCount = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
@@ -232,8 +235,14 @@ export class BlockService implements OnDestroy {
       this.blockData.set(key, bitmap);
     }
     if (errorBlock.length > 0) {
-      this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest([], errorBlock)));
+      this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest([], errorBlock, this.publishedSectors)));
     }
+  }
+
+  setSectors(sectors: boolean): void {
+    if (sectors === this.sectors) return;
+    this.sectors = sectors;
+    this.schedulePublish();
   }
 
   updateVisible(visibleKeys: Set<string>): void {
@@ -262,6 +271,7 @@ export class BlockService implements OnDestroy {
   }
 
   private hasDrift(): boolean {
+    if (this.sectors !== this.publishedSectors) return true;
     if (this.activeBlocks.size !== this.publishedBlocks.size) return true;
     for (const key of this.activeBlocks) {
       if (!this.publishedBlocks.has(key)) return true;
@@ -280,10 +290,12 @@ export class BlockService implements OnDestroy {
       if (!this.publishedBlocks.has(key)) toAdd.push(key);
     }
 
-    if (toRemove.length === 0 && toAdd.length === 0) return;
+    if (toRemove.length === 0 && toAdd.length === 0 && this.sectors === this.publishedSectors) return;
 
-    this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest(toRemove, toAdd)));
+    // On a switch between cells and sectors the server sends all blocks again; the old pictures stay until then.
+    this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest(toRemove, toAdd, this.sectors)));
     this.publishedBlocks = new Set(this.activeBlocks);
+    this.publishedSectors = this.sectors;
 
     // Workers drop what they hold for removed blocks, so one that comes back starts over from its full block.
     if (toRemove.length > 0) {
@@ -324,6 +336,7 @@ export class BlockService implements OnDestroy {
     this.blockData.clear();
 
     this.publishedBlocks.clear();
+    this.publishedSectors = false;
     this.generation++;
   }
 }
