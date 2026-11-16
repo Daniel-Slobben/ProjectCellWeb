@@ -1,7 +1,7 @@
 // Serves the production build of CellWeb against a mock backend, with the drawing bench injected.
 //
-//   node bench/server.mjs [--port 4300] [--tick 250] [--block-size 2000] [--density 0.1667] [--dist <build>/browser]
-//                         [--pattern noise|lines]
+//   node bench/server.mjs [--port 4300] [--tick 250] [--dist <build>/browser]
+//                         [--pattern recorded|noise|lines] [--recording bench/recordings/world.bin] [--block-size 2000] [--density 0.1667]
 //
 // --dist serves another build of the app, e.g. one made with `npx ng build --output-path /tmp/variant`,
 // so two versions of the drawing code can be compared against the same mock.
@@ -14,9 +14,13 @@
 // /client-update and every 4 ticks, and no FULLs or BORDERs. Block messages are binary frames (application/octet-stream) in the layout of
 // src/app/features/world-of-cells/grid-view/block-frame.ts. Every block exists, so it never sends
 // NO_BLOCKS, and it has no heartbeats: --pattern lines sends nothing per tick.
-// Cell content is random noise; only sizes and timing matter for drawing. --pattern lines serves
-// alternating alive/dead lines instead, vertical and horizontal in a checkerboard of blocks, and sends
-// no BORDERs: the lines are a still life, so the blocks stay as they are.
+// The cells are a recording of world-of-cells.net by record.mjs: each block a client adds gets a recorded FULL, then
+// the recorded BORDERs that followed it, from the start again once they run out. The recorded rectangle of blocks
+// repeats across the world, and blocks that didn't exist there are filled with ones that did. The settings send the
+// recorded viewport and blockSize. SECTORs aren't recorded: they're random at --density. --pattern noise serves random
+// cells at --density and --block-size instead.
+// --pattern lines serves alternating alive/dead lines, vertical and horizontal in a checkerboard of blocks, and
+// sends no BORDERs: the lines are a still life, so the blocks stay as they are.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,7 +49,8 @@ export function parseArgs(argv, defaults) {
   return out;
 }
 
-export const serverDefaults = {port: 4300, tick: 250, blockSize: 2000, density: 1 / 6, dist: '', quiet: false, pattern: 'noise'};
+export const serverDefaults = {port: 4300, tick: 250, blockSize: 2000, density: 1 / 6, dist: '', quiet: false, pattern: 'recorded',
+  recording: path.join(benchDir, 'recordings/world.bin')};
 
 // --- payloads: zstd frames at level 3 like the backend's, FULL as runs of strips (readStrips in block-frame.ts) ---
 
@@ -113,6 +118,29 @@ function makePayloads(blockSize, density) {
   for (let i = 0; i < 16; i++) border.push(compress(randomBits(blockSize * 4 - 4, density, rnd)));
   for (let i = 0; i < 8; i++) sector.push(sectorPayload(blockSize, density, rnd));
   return {full, border, sector};
+}
+
+// The JSON line and blocks record.mjs writes. A world block is the recorded block at the same place in the rectangle
+// they span, or another one where that block didn't exist.
+function readRecording(file) {
+  const data = fs.readFileSync(file);
+  const newline = data.indexOf('\n');
+  const blocks = new Map();
+  for (let i = newline + 1; i < data.length;) {
+    const x = data.readInt32LE(i), y = data.readInt32LE(i + 4), end = i + 17 + data.readUInt32LE(i + 13);
+    const cells = data.subarray(i + 17, end);
+    if (data[i + 8] === 0) blocks.set(`${x}/${y}`, {full: cells, borders: []});
+    else blocks.get(`${x}/${y}`).borders.push(cells);
+    i = end;
+  }
+  const xs = [...blocks.keys()].map((k) => Number(k.split('/')[0])), ys = [...blocks.keys()].map((k) => Number(k.split('/')[1]));
+  const left = Math.min(...xs), top = Math.min(...ys), width = Math.max(...xs) - left + 1, height = Math.max(...ys) - top + 1;
+  const all = [...blocks.values()];
+  const mod = (a, n) => ((a % n) + n) % n;
+  return {
+    ...JSON.parse(data.toString('utf8', 0, newline)), blocks: all,
+    at: (x, y) => blocks.get(`${left + mod(x - left, width)}/${top + mod(y - top, height)}`) ?? all[mod(x * 31 + y * 17, all.length)],
+  };
 }
 
 // --- minimal RFC 6455 server side: text frames, ping, close; no extensions ---
@@ -241,24 +269,41 @@ export async function startServer(options = {}) {
     throw new Error(`No build at ${path.relative(projectDir, distDir)}. Run "npx ng build" first.`);
   }
   const t0 = Date.now();
-  const payloads = opts.pattern === 'lines' ? linePayloads(opts.blockSize) : makePayloads(opts.blockSize, opts.density);
-  log(`payloads for blockSize ${opts.blockSize}, density ${opts.density.toFixed(3)}: FULL ~${Math.round(payloads.full[0].length / 1024)} KB, ` +
-    `BORDER ~${Math.round((payloads.border[0]?.length ?? 0) / 1024 * 10) / 10} KB of zstd (${Date.now() - t0} ms)`);
+  const recording = opts.pattern === 'recorded' ? readRecording(opts.recording) : null;
+  const blockSize = recording?.blockSize ?? opts.blockSize;
+  const payloads = recording ? {sector: Array.from({length: 8}, (_, i) => sectorPayload(blockSize, opts.density, mulberry32(i)))}
+    : opts.pattern === 'lines' ? linePayloads(blockSize) : makePayloads(blockSize, opts.density);
+  const kb = (bytes) => Math.round(bytes / 1024 * 10) / 10;
+  if (recording) {
+    const fulls = recording.blocks.map((b) => b.full.length), borders = recording.blocks.flatMap((b) => b.borders.map((c) => c.length));
+    log(`recording of ${recording.url} at ${recording.recordedAt}: ${fulls.length} blocks of ${blockSize}, ` +
+      `FULL ~${kb(fulls.reduce((a, b) => a + b) / fulls.length)} KB, BORDER ~${kb(borders.reduce((a, b) => a + b) / borders.length)} KB of zstd, ` +
+      `${Math.min(...recording.blocks.map((b) => b.borders.length))} generations`);
+  } else {
+    log(`payloads for blockSize ${blockSize}, density ${opts.density.toFixed(3)}: FULL ~${kb(payloads.full[0].length)} KB, ` +
+      `BORDER ~${kb(payloads.border[0]?.length ?? 0)} KB of zstd (${Date.now() - t0} ms)`);
+  }
 
-  // Start a quarter into a block, far from the origin.
-  const home = {worldX: 50 * opts.blockSize + opts.blockSize / 4, worldY: 50 * opts.blockSize + opts.blockSize / 4};
+  // Start where the recording was made, or a quarter into a block far from the origin.
+  const home = recording?.viewport ?? {x: 50 * blockSize + blockSize / 4, y: 50 * blockSize + blockSize / 4};
   let worldGeneration = 0, ticks = 0;
-  const clients = new Set(); // {id, keys: Set, sent: Set, connection, subscription, messageId}, one per connection
+  const clients = new Set(); // {id, keys: Set, sent: Map of key to the generation of its FULL, connection, subscription, messageId}
 
-  // With two line payloads this picks them in a checkerboard: x * 31 + y * 17 has the parity of x + y.
-  const cellsFor = (pool, x, y) => pool[Math.abs(x * 31 + y * 17 + worldGeneration) % pool.length];
+  const cellsFor = (x, y, type, age) => {
+    if (recording && type !== 'SECTOR') {
+      const block = recording.at(x, y);
+      return type === 'FULL' ? block.full : block.borders[(age - 1) % block.borders.length];
+    }
+    // With two line payloads this picks them in a checkerboard: x * 31 + y * 17 has the parity of x + y.
+    const pool = payloads[type.toLowerCase()];
+    return pool[Math.abs(x * 31 + y * 17 + worldGeneration) % pool.length];
+  };
   const typeCodes = {FULL: 0, BORDER: 1, SECTOR: 2};
   const sendBlocks = (client, keys, type) => {
-    const pool = payloads[type.toLowerCase()];
     const parts = [];
     for (const key of keys) {
       const [x, y] = key.split('/').map(Number);
-      const cells = cellsFor(pool, x, y);
+      const cells = cellsFor(x, y, type, worldGeneration - client.sent.get(key));
       const head = Buffer.alloc(17);
       head.writeInt32LE(x, 0);
       head.writeInt32LE(y, 4);
@@ -277,7 +322,7 @@ export async function startServer(options = {}) {
   const sendFulls = (client) => {
     if (!ready(client)) return;
     const unsent = [...client.keys].filter((key) => !client.sent.has(key));
-    for (const key of unsent) client.sent.add(key);
+    for (const key of unsent) client.sent.set(key, worldGeneration);
     if (client.sectors) {
       if (unsent.length > 0) sendBlocks(client, unsent, 'SECTOR');
       return;
@@ -291,9 +336,9 @@ export async function startServer(options = {}) {
     for (const client of clients) {
       if (!ready(client)) continue;
       if (client.sectors) {
-        if (sectorTick) sendBlocks(client, [...client.sent], 'SECTOR');
+        if (sectorTick) sendBlocks(client, [...client.sent.keys()], 'SECTOR');
       } else if (opts.pattern !== 'lines') {
-        sendBlocks(client, [...client.sent], 'BORDER');
+        sendBlocks(client, [...client.sent.keys()], 'BORDER');
       }
       // Only blocks added before the subscription existed are still waiting for their FULL.
       sendFulls(client);
@@ -356,10 +401,11 @@ export async function startServer(options = {}) {
     const p = url.pathname;
 
     if (p === '/gen-api/settings') {
-      return sendJson(res, 200, {blockSize: opts.blockSize, viewport: {x: home.worldX, y: home.worldY}, targetSpeed: opts.tick});
+      return sendJson(res, 200, {blockSize, viewport: home, targetSpeed: opts.tick});
     }
     if (p === '/__bench/info') {
-      return sendJson(res, 200, {blockSize: opts.blockSize, tickMs: opts.tick, density: opts.density, home,
+      return sendJson(res, 200, {blockSize, tickMs: opts.tick, pattern: recording ? `recorded ${recording.recordedAt}` : opts.pattern,
+        density: recording ? null : opts.density, home,
         dist: path.relative(projectDir, distDir) || '.', ...gitInfo()});
     }
     if (p === '/__bench/results' && req.method === 'POST') {
@@ -415,7 +461,7 @@ export async function startServer(options = {}) {
     socket.setNoDelay(true);
     socket.write(['HTTP/1.1 101 Switching Protocols', 'Upgrade: websocket', 'Connection: Upgrade',
       `Sec-WebSocket-Accept: ${accept}`, ...(protocol ? [`Sec-WebSocket-Protocol: ${protocol}`] : []), '', ''].join('\r\n'));
-    const client = {id: ++connectionCount, keys: new Set(), sent: new Set(), sectors: false, connection: null, subscription: null, messageId: 0};
+    const client = {id: ++connectionCount, keys: new Set(), sent: new Map(), sectors: false, connection: null, subscription: null, messageId: 0};
     client.connection = new WsConnection(socket, onStomp(client), () => clients.delete(client));
     clients.add(client);
   });
