@@ -4,7 +4,7 @@ export interface View {
   cellSize: number;
 }
 
-/** The part of the world the canvas shows, and the mouse and touch input that pans and zooms it. */
+/** The part of the world the canvas shows, and the mouse, touch and keyboard input that moves it. */
 export class Viewport {
   cellSize = 2.5;
   private readonly minCellSize: number = 0.1
@@ -26,7 +26,17 @@ export class Viewport {
   private isPinching = false;
   private lastTouchDistance = 0;
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
+  // By position rather than character, so WASD stays in place on other keyboard layouts.
+  private readonly keyDirections: Record<string, [number, number]> = {
+    KeyW: [0, -1], KeyA: [-1, 0], KeyS: [0, 1], KeyD: [1, 0],
+    ArrowUp: [0, -1], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowRight: [1, 0],
+  };
+  // Screen pixels, so held keys move as fast at every zoom.
+  private readonly keyPanPxPerMs = 1;
+  private readonly keysDown = new Set<string>();
+  private lastKeyMoveAt = 0;
+
+  constructor(private readonly canvas: HTMLCanvasElement, private readonly step: (step: -1 | 1) => void) {
     canvas.style.cursor = 'grab';
 
     // Mouse
@@ -41,6 +51,18 @@ export class Viewport {
     canvas.addEventListener('touchmove', this.onTouchMove, {passive: false});
     canvas.addEventListener('touchend', this.onTouchEnd, {passive: false});
     canvas.addEventListener('touchcancel', this.onTouchEnd, {passive: false});
+
+    // Keyboard
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
+    window.addEventListener('blur', this.onBlur);
+  }
+
+  // The canvas listeners go with the canvas.
+  destroy() {
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('blur', this.onBlur);
   }
 
   get view(): View {
@@ -65,6 +87,24 @@ export class Viewport {
     this.width = width;
     this.height = height;
     this.version++;
+  }
+
+  // Called every frame.
+  moveByKeys() {
+    const now = performance.now();
+    // Capped, so the first frame after a pause doesn't jump.
+    const ms = Math.min(now - this.lastKeyMoveAt, 100);
+    this.lastKeyMoveAt = now;
+
+    let x = 0, y = 0;
+    for (const code of this.keysDown) {
+      const [dx, dy] = this.keyDirections[code];
+      x += dx;
+      y += dy;
+    }
+    if (x !== 0 || y !== 0) {
+      this.pan(-x * this.keyPanPxPerMs * ms, -y * this.keyPanPxPerMs * ms);
+    }
   }
 
   private pan(dx: number, dy: number) {
@@ -187,5 +227,29 @@ export class Viewport {
       this.dragStartX = e.touches[0].clientX;
       this.dragStartY = e.touches[0].clientY;
     }
+  };
+
+  private readonly onKeyDown = (e: KeyboardEvent) => {
+    // Leave browser shortcuts and the settings sliders alone.
+    if (e.ctrlKey || e.metaKey || e.altKey || e.target instanceof HTMLInputElement) return;
+
+    if (e.code in this.keyDirections) {
+      // Arrows would otherwise scroll the page.
+      e.preventDefault();
+      this.keysDown.add(e.code);
+    } else if (!e.repeat && (e.key === ',' || e.key === '<')) {
+      this.step(-1);
+    } else if (!e.repeat && (e.key === '.' || e.key === '>')) {
+      this.step(1);
+    }
+  };
+
+  private readonly onKeyUp = (e: KeyboardEvent) => {
+    this.keysDown.delete(e.code);
+  };
+
+  // Keys released while another window has focus never send a keyup here.
+  private readonly onBlur = () => {
+    this.keysDown.clear();
   };
 }

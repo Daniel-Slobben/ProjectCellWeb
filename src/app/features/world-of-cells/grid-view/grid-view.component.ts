@@ -64,7 +64,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }
 
     this.ctx = this.canvasRef.nativeElement.getContext('2d')!;
-    this.viewport = new Viewport(this.canvasRef.nativeElement);
+    this.viewport = new Viewport(this.canvasRef.nativeElement, (step) => this.stepView(step));
     this.resizeCanvas();
     window.addEventListener('resize', this.resizeCanvas);
 
@@ -156,6 +156,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }
 
     clearTimeout(this.disconnectTimer);
+    this.viewport.destroy();
     this.noBlocksSubscription?.unsubscribe();
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('resize', this.resizeCanvas);
@@ -180,6 +181,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   private startRenderLoop() {
     const render = () => {
+      this.viewport.moveByKeys();
       this.updateVisibleBlocks();
       this.animationFrameId = requestAnimationFrame(render);
     };
