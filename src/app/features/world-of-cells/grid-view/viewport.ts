@@ -7,7 +7,8 @@ export interface View {
 /** The part of the world the canvas shows, and the mouse, touch and keyboard input that moves it. */
 export class Viewport {
   cellSize = 2.5;
-  private readonly minCellSize: number = 0.1
+  // Zoomed out, a view holds at most as many cells as a 4K screen at 100% does at 0.1 px per cell: ~207 blocks of 2000.
+  private readonly maxCellsInView = (3840 / 0.1) * (2160 / 0.1);
   private readonly maxCellSize: number = 30;
   width = window.innerWidth;
   height = window.innerHeight - 30;
@@ -71,6 +72,7 @@ export class Viewport {
 
   set view(view: View) {
     ({cellOffsetX: this.cellOffsetX, cellOffsetY: this.cellOffsetY, cellSize: this.cellSize} = view);
+    this.limitZoom();
     this.version++;
   }
 
@@ -86,7 +88,23 @@ export class Viewport {
     this.cellOffsetY += (this.height - height) / this.cellSize / 2;
     this.width = width;
     this.height = height;
+    this.limitZoom();
     this.version++;
+  }
+
+  private minCellSize(): number {
+    return Math.sqrt(this.width * this.height / this.maxCellsInView);
+  }
+
+  // A bigger window, or a view saved in a smaller one, can hold too many cells: zoom in around the centre.
+  private limitZoom() {
+    const minCellSize = this.minCellSize();
+    if (this.cellSize < minCellSize) {
+      const centerX = this.cellOffsetX + (this.width / this.cellSize) / 2;
+      const centerY = this.cellOffsetY + (this.height / this.cellSize) / 2;
+      this.cellSize = minCellSize;
+      this.centerOn(centerX, centerY);
+    }
   }
 
   // Called every frame.
@@ -150,7 +168,7 @@ export class Viewport {
     const newCellSize = this.cellSize * zoomFactor;
 
     // Limit zoom range
-    if (newCellSize >= this.minCellSize && newCellSize <= this.maxCellSize) {
+    if (newCellSize >= this.minCellSize() && newCellSize <= this.maxCellSize) {
       // Zoom towards the mouse position
       const rect = this.canvas.getBoundingClientRect();
       const mouseX = clientX - rect.left;
