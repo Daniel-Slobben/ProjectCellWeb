@@ -64,8 +64,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   private animationFrameId?: number;
 
-  public selectedBlock: { x: number; y: number } | null = null;
-
   private readonly requestTimeoutMs = 5000;
   // Retries wait this long, so clients don't keep hammering a server that is struggling.
   private readonly retryDelayMs = 4000;
@@ -262,12 +260,6 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.blockService.setRendering({
       poolFactor: this.poolFactorForZoom(), alive: this.settings.alive(), dead: this.settings.dead(), gamma: this.settings.gamma(),
     }, drawnBlocks);
-
-    if (this.selectedBlock != undefined) {
-      const offscreen = document.createElement('canvas');
-      offscreen.width = this.blockSize;
-      offscreen.height = this.blockSize;
-    }
   }
 
   private drawBlockWithImageData(blockX: number, blockY: number) {

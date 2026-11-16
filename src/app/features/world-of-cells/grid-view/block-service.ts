@@ -37,7 +37,6 @@ export class BlockService implements OnDestroy {
   public activeBlocks = new Set<string>();
   private publishedBlocks = new Set<string>();
 
-  private noEditKey: string | undefined;
   private workers: Worker[] = [];
   private readonly workerCount = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
   private pendingBatches: PendingBatch[] = [];
@@ -229,12 +228,8 @@ export class BlockService implements OnDestroy {
         continue;
       }
 
-      if (this.noEditKey !== key) {
-        this.blockData.get(key)?.close();
-        this.blockData.set(key, bitmap);
-      } else {
-        bitmap?.close();
-      }
+      this.blockData.get(key)?.close();
+      this.blockData.set(key, bitmap);
     }
     if (errorBlock.length > 0) {
       this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest([], errorBlock)));
@@ -329,7 +324,6 @@ export class BlockService implements OnDestroy {
     this.blockData.clear();
 
     this.publishedBlocks.clear();
-    this.noEditKey = undefined;
     this.generation++;
   }
 }
