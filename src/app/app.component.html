@@ -4,9 +4,9 @@
           [style.--coordinates-em]="coordinatesEm()">
       x: {{viewCenter.x()}} y: {{viewCenter.y()}}
     </span>
-    <button #gear class="w3-bar-item w3-button w3-padding-large"
+    <button class="w3-bar-item w3-button w3-padding-large"
             (click)="settingsOpen.set(!settingsOpen())"
-            (document:keydown.escape)="closeSettings(gear)"
+            (document:keydown.escape)="settingsOpen.set(false)"
             [class.selected]="settingsOpen()"
             [attr.aria-expanded]="settingsOpen()"
             title="Settings" aria-label="Settings">

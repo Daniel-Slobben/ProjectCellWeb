@@ -255,6 +255,8 @@ export class Viewport {
   };
 
   private readonly onKeyDown = (e: KeyboardEvent) => {
+    // Escape also closes Settings, so focus returns to the world, where Enter zooms.
+    if (e.key === 'Escape') this.canvas.focus();
     // Leave browser shortcuts, the settings sliders and Enter on a focused button alone.
     if (e.ctrlKey || e.metaKey || e.altKey || e.target instanceof HTMLInputElement) return;
     if (e.key === 'Enter' && e.target instanceof HTMLButtonElement) return;
