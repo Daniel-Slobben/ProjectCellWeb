@@ -38,8 +38,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private ctx!: CanvasRenderingContext2D;
 
   private drawnGeneration = 0;
-  private drawnCellOffsetX = 0;
-  private drawnCellOffsetY = 0;
+  private drawnVersion = 0;
 
   private animationFrameId?: number;
 
@@ -188,10 +187,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private updateVisibleBlocks() {
-    const {cellOffsetX, cellOffsetY, cellSize, width, height} = this.viewport;
-    if (this.drawnGeneration == this.blockService.getGeneration() && this.drawnCellOffsetX == cellOffsetX && this.drawnCellOffsetY == cellOffsetY) {
+    if (this.drawnGeneration == this.blockService.getGeneration() && this.drawnVersion == this.viewport.version) {
       return;
     }
+    const {cellOffsetX, cellOffsetY, cellSize, width, height} = this.viewport;
     this.ctx.clearRect(0, 0, width, height);
 
     const requestBottomX = Math.floor(cellOffsetX % this.blockSize) < this.blockSize / 2 ? 1 : 0;
@@ -200,8 +199,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const requestTopY = Math.floor(cellOffsetY % this.blockSize) < this.blockSize / 2 ? 1 : 0;
 
     this.drawnGeneration = this.blockService.getGeneration();
-    this.drawnCellOffsetX = cellOffsetX;
-    this.drawnCellOffsetY = cellOffsetY;
+    this.drawnVersion = this.viewport.version;
 
     const centerCellX = Math.floor(cellOffsetX + (width / cellSize) / 2);
     const centerCellY = Math.floor(cellOffsetY + (height / cellSize) / 2);

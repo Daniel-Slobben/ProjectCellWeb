@@ -14,6 +14,8 @@ export class Viewport {
 
   cellOffsetX = 0;
   cellOffsetY = 0;
+  // Goes up on every change to the view, so the grid is drawn again.
+  version = 0;
 
   // Drag state
   private isDragging = false;
@@ -47,11 +49,13 @@ export class Viewport {
 
   set view(view: View) {
     ({cellOffsetX: this.cellOffsetX, cellOffsetY: this.cellOffsetY, cellSize: this.cellSize} = view);
+    this.version++;
   }
 
   centerOn(worldX: number, worldY: number) {
     this.cellOffsetX = worldX - (this.width / this.cellSize) / 2;
     this.cellOffsetY = worldY - (this.height / this.cellSize) / 2;
+    this.version++;
   }
 
   // Keeps the cell in the middle of the view where it is.
@@ -60,11 +64,13 @@ export class Viewport {
     this.cellOffsetY += (this.height - height) / this.cellSize / 2;
     this.width = width;
     this.height = height;
+    this.version++;
   }
 
   private pan(dx: number, dy: number) {
     this.cellOffsetX -= dx / this.cellSize;
     this.cellOffsetY -= dy / this.cellSize;
+    this.version++;
   }
 
   private readonly onClick = (e: MouseEvent) => {
@@ -119,6 +125,7 @@ export class Viewport {
       // Adjust offset to keep the mouse position stable
       this.cellOffsetX = worldX - mouseX / this.cellSize;
       this.cellOffsetY = worldY - mouseY / this.cellSize;
+      this.version++;
     }
   }
 
