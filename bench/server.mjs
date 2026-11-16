@@ -10,7 +10,8 @@
 // raw WebSocket at /ws, where each connection is one client that subscribes to /user/queue/blocks. Like
 // the backend, it answers every /client-update with one MESSAGE per added block holding its FULL, and
 // every tick sends each client one MESSAGE with a BORDER for each block it already has (an empty one if
-// it has none). Block messages are binary frames (application/octet-stream) in the layout of
+// it has none). A client that asks for sectors gets all its blocks again as SECTORs, one message per
+// /client-update and every 4 ticks, and no FULLs or BORDERs. Block messages are binary frames (application/octet-stream) in the layout of
 // src/app/features/world-of-cells/grid-view/block-frame.ts. Every block exists, so it never sends
 // NO_BLOCKS, and it has no heartbeats: --pattern lines sends nothing per tick.
 // Cell content is random noise; only sizes and timing matter for drawing. --pattern lines serves
@@ -90,20 +91,28 @@ function fullPayload(raw, blockSize) {
   return compress(Uint8Array.from(runs));
 }
 
+// Alive cells per sector of 50 by 50 cells, u16 little-endian, between none and twice the density.
+function sectorPayload(blockSize, density, rnd) {
+  const sectors = blockSize / 50;
+  const counts = new Uint16Array(sectors * sectors).map(() => Math.round(50 * 50 * density * 2 * rnd()));
+  return compress(new Uint8Array(counts.buffer));
+}
+
 // Cells are column-major (bit x * blockSize + y): 0xff fills even columns, 0x55 even rows.
 function linePayloads(blockSize) {
   const vertical = new Uint8Array(blockSize * blockSize / 8);
   for (let x = 0; x < blockSize; x += 2) vertical.fill(0xff, x * blockSize / 8, (x + 1) * blockSize / 8);
   const horizontal = new Uint8Array(blockSize * blockSize / 8).fill(0x55);
-  return {full: [fullPayload(vertical, blockSize), fullPayload(horizontal, blockSize)], border: []};
+  return {full: [fullPayload(vertical, blockSize), fullPayload(horizontal, blockSize)], border: [], sector: [sectorPayload(blockSize, 0.5, () => 0.5)]};
 }
 
 function makePayloads(blockSize, density) {
   const rnd = mulberry32(1234);
-  const full = [], border = [];
+  const full = [], border = [], sector = [];
   for (let i = 0; i < 8; i++) full.push(fullPayload(randomBits(blockSize * blockSize, density, rnd), blockSize));
   for (let i = 0; i < 16; i++) border.push(compress(randomBits(blockSize * 4 - 4, density, rnd)));
-  return {full, border};
+  for (let i = 0; i < 8; i++) sector.push(sectorPayload(blockSize, density, rnd));
+  return {full, border, sector};
 }
 
 // --- minimal RFC 6455 server side: text frames, ping, close; no extensions ---
@@ -238,13 +247,14 @@ export async function startServer(options = {}) {
 
   // Start a quarter into a block, far from the origin.
   const home = {worldX: 50 * opts.blockSize + opts.blockSize / 4, worldY: 50 * opts.blockSize + opts.blockSize / 4};
-  let worldGeneration = 0;
+  let worldGeneration = 0, ticks = 0;
   const clients = new Set(); // {id, keys: Set, sent: Set, connection, subscription, messageId}, one per connection
 
   // With two line payloads this picks them in a checkerboard: x * 31 + y * 17 has the parity of x + y.
   const cellsFor = (pool, x, y) => pool[Math.abs(x * 31 + y * 17 + worldGeneration) % pool.length];
+  const typeCodes = {FULL: 0, BORDER: 1, SECTOR: 2};
   const sendBlocks = (client, keys, type) => {
-    const pool = type === 'FULL' ? payloads.full : payloads.border;
+    const pool = payloads[type.toLowerCase()];
     const parts = [];
     for (const key of keys) {
       const [x, y] = key.split('/').map(Number);
@@ -252,7 +262,7 @@ export async function startServer(options = {}) {
       const head = Buffer.alloc(17);
       head.writeInt32LE(x, 0);
       head.writeInt32LE(y, 4);
-      head.writeUInt8(type === 'FULL' ? 0 : 1, 8);
+      head.writeUInt8(typeCodes[type], 8);
       head.writeUInt32LE(worldGeneration, 9);
       head.writeUInt32LE(cells.length, 13);
       parts.push(head, cells);
@@ -263,21 +273,28 @@ export async function startServer(options = {}) {
     }, Buffer.concat(parts)));
   };
   const ready = (client) => client.subscription !== null;
-  /** One message per FULL, for every subscribed block the client has not had yet. */
+  /** One message per FULL, or one with all SECTORs, for every subscribed block the client has not had yet. */
   const sendFulls = (client) => {
     if (!ready(client)) return;
-    for (const key of client.keys) {
-      if (client.sent.has(key)) continue;
-      client.sent.add(key);
-      sendBlocks(client, [key], 'FULL');
+    const unsent = [...client.keys].filter((key) => !client.sent.has(key));
+    for (const key of unsent) client.sent.add(key);
+    if (client.sectors) {
+      if (unsent.length > 0) sendBlocks(client, unsent, 'SECTOR');
+      return;
     }
+    for (const key of unsent) sendBlocks(client, [key], 'FULL');
   };
 
   const tick = () => {
     if (opts.pattern !== 'lines') worldGeneration++;
+    const sectorTick = ticks++ % 4 === 0;
     for (const client of clients) {
       if (!ready(client)) continue;
-      if (opts.pattern !== 'lines') sendBlocks(client, [...client.sent], 'BORDER');
+      if (client.sectors) {
+        if (sectorTick) sendBlocks(client, [...client.sent], 'SECTOR');
+      } else if (opts.pattern !== 'lines') {
+        sendBlocks(client, [...client.sent], 'BORDER');
+      }
       // Only blocks added before the subscription existed are still waiting for their FULL.
       sendFulls(client);
     }
@@ -301,6 +318,11 @@ export async function startServer(options = {}) {
         case 'SEND': {
           if (frame.headers.destination === '/client-update') {
             const update = JSON.parse(frame.body);
+            // Switching between cells and sectors, all blocks are sent again.
+            if (!!update.sectors !== client.sectors) {
+              client.sectors = !!update.sectors;
+              client.sent.clear();
+            }
             for (const key of update.blocksToRemove ?? []) { client.keys.delete(key); client.sent.delete(key); }
             // Adds also cover the client's error path, which re-adds a key to get a fresh FULL.
             for (const key of update.blocksToAdd ?? []) { client.keys.add(key); client.sent.delete(key); }
@@ -393,7 +415,7 @@ export async function startServer(options = {}) {
     socket.setNoDelay(true);
     socket.write(['HTTP/1.1 101 Switching Protocols', 'Upgrade: websocket', 'Connection: Upgrade',
       `Sec-WebSocket-Accept: ${accept}`, ...(protocol ? [`Sec-WebSocket-Protocol: ${protocol}`] : []), '', ''].join('\r\n'));
-    const client = {id: ++connectionCount, keys: new Set(), sent: new Set(), connection: null, subscription: null, messageId: 0};
+    const client = {id: ++connectionCount, keys: new Set(), sent: new Set(), sectors: false, connection: null, subscription: null, messageId: 0};
     client.connection = new WsConnection(socket, onStomp(client), () => clients.delete(client));
     clients.add(client);
   });

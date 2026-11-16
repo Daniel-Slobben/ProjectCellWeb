@@ -49,6 +49,8 @@ export class DisplaySettings {
   readonly dead = signal(THEMES[1].dead);
   // Zoomed out, how far a patch's share of alive cells moves it towards the alive colour: lower shows sparse life more.
   readonly gamma = signal(defaultGamma(THEMES[1]));
+  // For now, until a default is found: above this many blocks in view, blocks are drawn per sector. Not saved.
+  readonly sectorBlocks = signal(200);
 
   constructor() {
     try {

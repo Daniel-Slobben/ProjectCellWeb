@@ -11,6 +11,12 @@
          [value]="settings.gamma()" (input)="settings.gamma.set(+$any($event.target).value)">
   <span class="value">{{ settings.gamma().toFixed(1) }}</span>
 </label>
+<label class="row" title="Above this many blocks in view, they are drawn per sector of 50 by 50 cells">
+  Sectors
+  <input type="range" min="10" max="400" step="10"
+         [value]="settings.sectorBlocks()" (input)="settings.sectorBlocks.set(+$any($event.target).value)">
+  <span class="value">{{ settings.sectorBlocks() }}</span>
+</label>
 
 <div class="section">Theme</div>
 <div class="themes">
