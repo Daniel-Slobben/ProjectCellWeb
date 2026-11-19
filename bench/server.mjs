@@ -8,10 +8,11 @@
 //
 // The mock speaks the same wire protocol as the Spring backend: GET /gen-api/settings and STOMP over a
 // raw WebSocket at /ws, where each connection is one client that subscribes to /user/queue/blocks. Like
-// the backend, it answers every /client-update with one MESSAGE per added block holding its FULL, and
+// the backend, it answers every /client-update, the range of blocks in view, with one MESSAGE per block new in view
+// holding its FULL, and
 // every tick sends each client one MESSAGE with a BORDER for each block it already has (an empty one if
-// it has none). A client that asks for sectors gets all its blocks again as SECTORs, one message per
-// /client-update and every 4 ticks, and no FULLs or BORDERs. Block messages are binary frames (application/octet-stream) in the layout of
+// it has none). A client that watches sectors gets no FULLs or BORDERs, but the SECTORs of the blocks in view in
+// messages of 250: those new in view with each /client-update, and all of them every 10 s. Block messages are binary frames (application/octet-stream) in the layout of
 // src/app/features/world-of-cells/grid-view/block-frame.ts. Every block exists, so it never sends
 // NO_BLOCKS, and it has no heartbeats: --pattern lines sends nothing per tick.
 // The cells are a recording of world-of-cells.net by record.mjs: each block a client adds gets a recorded FULL, then
@@ -96,11 +97,10 @@ function fullPayload(raw, blockSize) {
   return compress(Uint8Array.from(runs));
 }
 
-// Alive cells per sector of 50 by 50 cells, u16 little-endian, between none and twice the density.
+// The share of alive cells per sector of 50 by 50 cells as a u8 of 0-255, between none and twice the density.
 function sectorPayload(blockSize, density, rnd) {
   const sectors = blockSize / 50;
-  const counts = new Uint16Array(sectors * sectors).map(() => Math.round(50 * 50 * density * 2 * rnd()));
-  return compress(new Uint8Array(counts.buffer));
+  return compress(new Uint8Array(sectors * sectors).map(() => Math.ceil(255 * Math.min(1, density * 2 * rnd()))));
 }
 
 // Cells are column-major (bit x * blockSize + y): 0xff fills even columns, 0x55 even rows.
@@ -318,28 +318,48 @@ export async function startServer(options = {}) {
     }, Buffer.concat(parts)));
   };
   const ready = (client) => client.subscription !== null;
-  /** One message per FULL, or one with all SECTORs, for every subscribed block the client has not had yet. */
+  /** One message per FULL for every subscribed block the client has not had yet. */
   const sendFulls = (client) => {
     if (!ready(client)) return;
     const unsent = [...client.keys].filter((key) => !client.sent.has(key));
     for (const key of unsent) client.sent.set(key, worldGeneration);
-    if (client.sectors) {
-      if (unsent.length > 0) sendBlocks(client, unsent, 'SECTOR');
-      return;
-    }
     for (const key of unsent) sendBlocks(client, [key], 'FULL');
   };
+  const keysIn = (view) => {
+    const keys = [];
+    for (let x = view.minX; x <= view.maxX; x++) for (let y = view.minY; y <= view.maxY; y++) keys.push(`${x}/${y}`);
+    return keys;
+  };
+  const inView = (view, key) => {
+    const [x, y] = key.split('/').map(Number);
+    return x >= view.minX && x <= view.maxX && y >= view.minY && y <= view.maxY;
+  };
+  const sendSectors = (client, keys) => {
+    if (!ready(client)) return;
+    for (let i = 0; i < keys.length; i += 250) sendBlocks(client, keys.slice(i, i + 250), 'SECTOR');
+  };
+  // Like ClientService: a message per tile of 16 x 16 blocks that overlaps the view.
+  const sendTiles = (client) => {
+    const {minX, maxX, minY, maxY} = client.view;
+    for (let tx = Math.floor(minX / 16); tx <= Math.floor(maxX / 16); tx++) {
+      for (let ty = Math.floor(minY / 16); ty <= Math.floor(maxY / 16); ty++) {
+        sendBlocks(client, keysIn({minX: tx * 16, maxX: tx * 16 + 15, minY: ty * 16, maxY: ty * 16 + 15}), 'SECTOR');
+      }
+    }
+  };
+  const ticksPer = (ms) => Math.max(1, Math.floor(ms / opts.tick));
 
   const tick = () => {
     if (opts.pattern !== 'lines') worldGeneration++;
-    const sectorTick = ticks++ % 4 === 0;
+    const t = ticks++;
     for (const client of clients) {
       if (!ready(client)) continue;
       if (client.sectors) {
-        if (sectorTick) sendBlocks(client, [...client.sent.keys()], 'SECTOR');
-      } else if (opts.pattern !== 'lines') {
-        sendBlocks(client, [...client.sent.keys()], 'BORDER');
+        // each client on its own tick of the 10 s
+        if (client.id % ticksPer(10000) === t % ticksPer(10000) && client.view) sendTiles(client);
+        continue;
       }
+      if (opts.pattern !== 'lines') sendBlocks(client, [...client.sent.keys()], 'BORDER');
       // Only blocks added before the subscription existed are still waiting for their FULL.
       sendFulls(client);
     }
@@ -363,14 +383,21 @@ export async function startServer(options = {}) {
         case 'SEND': {
           if (frame.headers.destination === '/client-update') {
             const update = JSON.parse(frame.body);
-            // Switching between cells and sectors, all blocks are sent again.
-            if (!!update.sectors !== client.sectors) {
-              client.sectors = !!update.sectors;
+            const view = {minX: update.minX, maxX: update.maxX, minY: update.minY, maxY: update.maxY};
+            const old = client.view, switched = !!update.sectors !== client.sectors;
+            client.view = view;
+            client.sectors = !!update.sectors;
+            if (client.sectors) {
+              client.keys.clear();
               client.sent.clear();
+              sendSectors(client, keysIn(view).filter((key) => switched || !old || !inView(old, key)));
+              break;
             }
-            for (const key of update.blocksToRemove ?? []) { client.keys.delete(key); client.sent.delete(key); }
-            // Adds also cover the client's error path, which re-adds a key to get a fresh FULL.
-            for (const key of update.blocksToAdd ?? []) { client.keys.add(key); client.sent.delete(key); }
+            const keys = new Set(keysIn(view));
+            for (const key of client.keys) if (!keys.has(key)) { client.keys.delete(key); client.sent.delete(key); }
+            for (const key of keys) client.keys.add(key);
+            // The client's error path asks for a fresh FULL.
+            for (const key of update.resend ?? []) if (keys.has(key)) client.sent.delete(key);
             sendFulls(client);
           }
           break;
@@ -461,7 +488,7 @@ export async function startServer(options = {}) {
     socket.setNoDelay(true);
     socket.write(['HTTP/1.1 101 Switching Protocols', 'Upgrade: websocket', 'Connection: Upgrade',
       `Sec-WebSocket-Accept: ${accept}`, ...(protocol ? [`Sec-WebSocket-Protocol: ${protocol}`] : []), '', ''].join('\r\n'));
-    const client = {id: ++connectionCount, keys: new Set(), sent: new Map(), sectors: false, connection: null, subscription: null, messageId: 0};
+    const client = {id: ++connectionCount, keys: new Set(), sent: new Map(), view: null, sectors: false, connection: null, subscription: null, messageId: 0};
     client.connection = new WsConnection(socket, onStomp(client), () => clients.delete(client));
     clients.add(client);
   });

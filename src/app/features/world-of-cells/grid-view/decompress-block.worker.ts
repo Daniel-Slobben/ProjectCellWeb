@@ -10,8 +10,11 @@ let densityGamma = 0.6;
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 const earlyBorders = new Map<string, FramedBlock[]>();
-// Alive cells per sector of the blocks sent as sectors, instead of their cells.
-const sectorBlocks = new Map<string, Uint16Array>();
+// The share of alive cells per sector, 0-255, of the blocks in view that got sectors.
+const sectorBlocks = new Map<string, Uint8Array>();
+// The blocks in view: those without cells show their sectors. Sectors of blocks out of view, which come with a tile of
+// blocks in view, are dropped.
+const visible = new Set<string>();
 // a safety cap, about 25 seconds of ticks
 const maxEarlyBorders = 50;
 
@@ -53,16 +56,26 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
       const sectors = sectorBlocks.get(getKey(x, y));
       if (!data && !sectors) continue;
       const bitmap = await toBitmap(data ? decodeByteArrayToImageData(data) : sectorImageData(sectors!));
-      results.push({bitmap, sector: !data, x, y});
+      results.push({bitmap, x, y});
     }
     return;
   }
 
-  if (type === 'forget') {
+  if (type === 'forget' || type === 'show') {
     for (const {x, y} of payload.data) {
       const key = getKey(x, y);
-      forgetCells(key);
-      sectorBlocks.delete(key);
+      if (type === 'forget') forgetCells(key);
+      else visible.add(key);
+      // without sectors, a block in view that lost its cells shows nothing instead of its last cells
+      if (!await pushSectors(key, x, y, results) && type === 'forget' && visible.has(key)) results.push({x, y});
+    }
+    return;
+  }
+
+  if (type === 'hide') {
+    for (const {x, y} of payload.data) {
+      visible.delete(getKey(x, y));
+      sectorBlocks.delete(getKey(x, y));
     }
     return;
   }
@@ -71,7 +84,6 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     const key = getKey(block.x, block.y);
 
     if (block.type === FULL) {
-      sectorBlocks.delete(key);
       encodedBlocks.set(key, decodeFull(block.cells));
       blockGenerationMap.set(key, block.generation);
       for (const border of takeEarlyBorders(key, block.generation)) {
@@ -102,17 +114,21 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
         console.error(e);
       }
     } else if (block.type === SECTOR) {
-      // The cells come again as a FULL block when the client goes back to them.
-      forgetCells(key);
-      const bytes = zstd.decode(block.cells);
-      const sectors = Uint16Array.from({length: bytes.length >> 1}, (_, i) => bytes[2 * i] | bytes[2 * i + 1] << 8);
-      sectorBlocks.set(key, sectors);
-      results.push({bitmap: await toBitmap(sectorImageData(sectors)), sector: true, x: block.x, y: block.y});
+      if (!visible.has(key)) continue;
+      sectorBlocks.set(key, zstd.decode(block.cells));
+      await pushSectors(key, block.x, block.y, results);
     } else {
       console.warn(`Unknown block type ${block.type} for ${key}`);
     }
   }
 
+}
+
+async function pushSectors(key: string, x: number, y: number, results: any[]): Promise<boolean> {
+  const sectors = sectorBlocks.get(key);
+  if (!sectors || !visible.has(key) || encodedBlocks.has(key)) return false;
+  results.push({bitmap: await toBitmap(sectorImageData(sectors)), x, y});
+  return true;
 }
 
 function forgetCells(key: string): void {
@@ -125,13 +141,12 @@ function forgetCells(key: string): void {
  * One pixel per sector. The backend sends the sectors per band down the rows, each band along the row, and its rows are
  * the columns of the picture, like the cells.
  */
-function sectorImageData(sectors: Uint16Array): ImageData {
+function sectorImageData(sectors: Uint8Array): ImageData {
   const size = Math.sqrt(sectors.length);
-  const sectorCells = (blockSize / size) ** 2;
   const imageData = imageOfSize(size);
   const pixels = new Int32Array(imageData.data.buffer);
   for (let x = 0; x < size; x++) {
-    for (let y = 0; y < size; y++) pixels[y * size + x] = densityPixel(sectors[x * size + y] / sectorCells);
+    for (let y = 0; y < size; y++) pixels[y * size + x] = densityPixel(sectors[x * size + y] / 255);
   }
   return imageData;
 }

@@ -31,6 +31,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   protected blockSize: number = 500;
   // The backend's sectors, in cells.
   private readonly sectorSize = 50;
+  private readonly maxCellBlocks = 250;
   private viewport!: Viewport;
 
   // Visited views; Previous and Next step through them and fetch a new viewport past either end.
@@ -191,9 +192,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private updateVisibleBlocks() {
-    const now = performance.now();
-    if (this.drawnGeneration == this.blockService.getGeneration() && this.drawnVersion == this.viewport.version
-      && !this.blockService.isFading(now)) {
+    if (this.drawnGeneration == this.blockService.getGeneration() && this.drawnVersion == this.viewport.version) {
       return;
     }
     const {cellOffsetX, cellOffsetY, cellSize, width, height} = this.viewport;
@@ -227,23 +226,27 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         const key = getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
-          this.drawBlockWithImageData(blockX, blockY, now);
+          this.drawBlockWithImageData(blockX, blockY);
           drawnBlocks.push({x: blockX, y: blockY});
         }
       }
     }
     // Sectors once they are small on screen. CSS pixels are about the same size on a phone and a monitor, so a sector
-    // at 1 px is as fine on either. Back to cells a bit above that, so zooming around it does not switch back and forth.
-    const sectorPixels = cellSize * this.sectorSize, switchPixels = this.settings.sectorPixels();
+    // at 1 px is as fine on either. A big screen switches earlier, once the view holds 250 blocks: that many full blocks
+    // is as much as a phone gets. Back to cells a bit above that, so zooming around it does not switch back and forth.
+    const budgetPixels = Math.sqrt(width * height / this.maxCellBlocks) * this.sectorSize / this.blockSize;
+    const sectorPixels = cellSize * this.sectorSize, switchPixels = Math.max(this.settings.sectorPixels(), budgetPixels);
     if (sectorPixels <= switchPixels) this.blockService.setSectors(true);
     else if (sectorPixels > 1.1 * switchPixels) this.blockService.setSectors(false);
-    this.blockService.updateVisible(currentVisibleBlocks);
+    this.blockService.updateVisible({
+      minX: startBlockX - requestBottomX, maxX: endBlockX + requestTopX, minY: startBlockY - requestBottomY, maxY: endBlockY + requestTopY,
+    }, currentVisibleBlocks);
     this.blockService.setRendering({
       poolFactor: this.poolFactorForZoom(), alive: this.settings.alive(), dead: this.settings.dead(), gamma: this.settings.gamma(),
     }, drawnBlocks);
   }
 
-  private drawBlockWithImageData(blockX: number, blockY: number, now: number) {
+  private drawBlockWithImageData(blockX: number, blockY: number) {
     const key = getKey(blockX, blockY);
     let imageData = this.blockService.getBlock(key);
     if (!imageData) {
@@ -259,21 +262,14 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const blockPixelSize = this.blockSize * cellSize;
 
     // Between 1 and 2 device pixels per cell, nearest-neighbour makes cells 1 or 2 pixels wide, which
-    // turns fine patterns into bands. Below 1 the bitmap is pooled to 1-2 pixels per pooled cell.
-    this.ctx.imageSmoothingEnabled = this.settings.smoothing() && this.devicePixelsPerCell() < 2;
+    // turns fine patterns into bands. Below 1 the bitmap is pooled to 1-2 pixels per pooled cell. Sectors stay sharp.
+    this.ctx.imageSmoothingEnabled = this.settings.smoothing() && this.devicePixelsPerCell() < 2 && !this.blockService.sectors;
     // Edges on whole device pixels: a pixel shared by two blocks would be blended twice and show as a light line.
     const ratio = Math.ceil(window.devicePixelRatio);
     const snap = (v: number) => Math.round(v * ratio) / ratio;
     const left = snap(blockCanvasX), top = snap(blockCanvasY);
     const width = snap(blockCanvasX + blockPixelSize) - left, height = snap(blockCanvasY + blockPixelSize) - top;
-    // Bitmaps are opaque, so the new one drawn over the old one with alpha is a crossfade.
-    const fade = this.blockService.getFade(key, now);
-    if (fade) {
-      this.ctx.drawImage(fade.from, left, top, width, height);
-      this.ctx.globalAlpha = fade.progress;
-    }
     this.ctx.drawImage(imageData, left, top, width, height);
-    this.ctx.globalAlpha = 1;
 
     if (this.settings.borders()) {
       this.ctx.lineWidth = 1;

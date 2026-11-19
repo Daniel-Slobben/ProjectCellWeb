@@ -74,7 +74,7 @@ socket.on('data', (chunk) => {
     // CONNECTED is the first text message; compressed or not, it is short, so the subscribe can follow it.
     if (message.opcode === 1 && message.frames === 1 && message.bytes < 200 && frames === 1) {
       sendText(`SUBSCRIBE\nid:sub-0\ndestination:/user/queue/blocks\n\n\0`);
-      const update = JSON.stringify({blocksToRemove: [], blocksToAdd: ['0/0', '1/0', '0/1', '1/1']});
+      const update = JSON.stringify({minX: 0, maxX: 1, minY: 0, maxY: 1, sectors: false, resend: []});
       sendText(`SEND\ndestination:/client-update\ncontent-type:application/json\ncontent-length:${Buffer.byteLength(update)}\n\n${update}\0`);
     }
   }

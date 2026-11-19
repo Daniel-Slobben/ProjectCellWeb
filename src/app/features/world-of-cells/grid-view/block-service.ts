@@ -1,5 +1,5 @@
 import {Injectable, OnDestroy} from '@angular/core';
-import {ClientUpdateRequest} from '../../../requests/outgoing/ClientUpdateRequest';
+import {BlockRange, ClientUpdateRequest} from '../../../requests/outgoing/ClientUpdateRequest';
 import {Subject} from 'rxjs';
 import {getKey, workerIndex} from './utils.component';
 import type {SocketCommand, SocketEvent} from './stomp.worker';
@@ -18,7 +18,6 @@ interface WorkerResult {
   bitmap?: ImageBitmap;
   error?: boolean;
   border?: boolean;
-  sector?: boolean;
   x: number;
   y: number;
 }
@@ -36,14 +35,17 @@ export class BlockService implements OnDestroy {
   private generation = 0;
 
   public activeBlocks = new Set<string>();
+  // The server is told the range of blocks in view, and works out which blocks that adds or removes.
+  private view: BlockRange | null = null;
+  private publishedView: BlockRange | null = null;
+  // The blocks the workers hold cells for.
   private publishedBlocks = new Set<string>();
-  // Zoomed far out the server sends the alive cells per sector of each block, every few ticks, instead of the cells.
+  // Blocks whose cells went wrong, to get their full block again.
+  private readonly resend = new Set<string>();
+  // Zoomed far out the client watches sectors: it gets the sectors of the blocks in view every 10 s, instead of cells.
+  // Zoomed back in, a block shows its sectors until its cells come.
   public sectors = false;
   private publishedSectors = false;
-  // A block that changes between cells and sectors, or gets new sectors, fades from its old picture to the new one.
-  private readonly fadeMs = 300;
-  private readonly fades = new Map<string, {from: ImageBitmap, start: number}>();
-  private readonly sectorKeys = new Set<string>();
 
   private workers: Worker[] = [];
   private readonly workerCount = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
@@ -134,6 +136,7 @@ export class BlockService implements OnDestroy {
     }
 
     this.dispatchToWorkers('init', []);
+    this.dispatchToWorkers('show', positions(this.activeBlocks));
   }
 
   setRendering(rendering: Rendering, visible: BlockPosition[]): void {
@@ -143,7 +146,7 @@ export class BlockService implements OnDestroy {
     this.dispatchToWorkers('rescale', visible.filter(({x, y}) => this.blockData.has(getKey(x, y))));
   }
 
-  private dispatchToWorkers(type: 'init' | 'rescale' | 'forget', blocks: BlockPosition[]): void {
+  private dispatchToWorkers(type: 'init' | 'rescale' | 'forget' | 'show' | 'hide', blocks: BlockPosition[]): void {
     // Before the first connection there are no workers, and nothing for them to forget.
     if (this.workers.length === 0) return;
     const perWorker: BlockPosition[][] = this.workers.map(() => []);
@@ -226,30 +229,18 @@ export class BlockService implements OnDestroy {
   private applyResults(results: WorkerResult[]): void {
     this.generation++;
 
-    const errorBlock: string[] = [];
-
-    for (const {bitmap, error, sector, x, y} of results) {
+    for (const {bitmap, error, x, y} of results) {
       const key = getKey(x, y);
 
       if (error) {
-        errorBlock.push(key);
+        this.resend.add(key);
         continue;
       }
 
-      const old = this.blockData.get(key);
-      if (old && bitmap && (sector || this.sectorKeys.has(key))) {
-        this.fades.get(key)?.from.close();
-        this.fades.set(key, {from: old, start: performance.now()});
-      } else {
-        old?.close();
-      }
-      if (sector) this.sectorKeys.add(key);
-      else this.sectorKeys.delete(key);
+      this.blockData.get(key)?.close();
       this.blockData.set(key, bitmap);
     }
-    if (errorBlock.length > 0) {
-      this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest([], errorBlock, this.publishedSectors)));
-    }
+    if (this.resend.size > 0) this.schedulePublish();
   }
 
   setSectors(sectors: boolean): void {
@@ -258,18 +249,23 @@ export class BlockService implements OnDestroy {
     this.schedulePublish();
   }
 
-  updateVisible(visibleKeys: Set<string>): void {
+  updateVisible(view: BlockRange, visibleKeys: Set<string>): void {
     for (const [key, bitmap] of this.blockData) {
       if (!visibleKeys.has(key)) {
         bitmap?.close();
         this.blockData.delete(key);
-        this.endFade(key);
-        this.sectorKeys.delete(key);
       }
     }
     this.dropDelayed((key) => !visibleKeys.has(key));
 
+    // Workers draw the sectors of the blocks in view that have no cells.
+    const shown = [...visibleKeys].filter((key) => !this.activeBlocks.has(key));
+    const hidden = [...this.activeBlocks].filter((key) => !visibleKeys.has(key));
+    if (shown.length > 0) this.dispatchToWorkers('show', positions(shown));
+    if (hidden.length > 0) this.dispatchToWorkers('hide', positions(hidden));
+
     this.activeBlocks = new Set(visibleKeys);
+    this.view = view;
     this.schedulePublish();
   }
 
@@ -286,65 +282,32 @@ export class BlockService implements OnDestroy {
   }
 
   private hasDrift(): boolean {
-    if (this.sectors !== this.publishedSectors) return true;
-    if (this.activeBlocks.size !== this.publishedBlocks.size) return true;
-    for (const key of this.activeBlocks) {
-      if (!this.publishedBlocks.has(key)) return true;
-    }
-    return false;
+    const view = this.view, published = this.publishedView;
+    if (!view) return false;
+    return this.sectors !== this.publishedSectors || this.resend.size > 0 || !published
+      || view.minX !== published.minX || view.maxX !== published.maxX || view.minY !== published.minY || view.maxY !== published.maxY;
   }
 
   private publishDelta(): void {
-    const toRemove: string[] = [];
-    for (const key of this.publishedBlocks) {
-      if (!this.activeBlocks.has(key)) toRemove.push(key);
-    }
+    if (!this.view) return;
+    // Watching sectors, the workers hold no cells.
+    const wanted = this.sectors ? new Set<string>() : this.activeBlocks;
+    const toRemove = [...this.publishedBlocks].filter((key) => !wanted.has(key));
 
-    const toAdd: string[] = [];
-    for (const key of this.activeBlocks) {
-      if (!this.publishedBlocks.has(key)) toAdd.push(key);
-    }
-
-    if (toRemove.length === 0 && toAdd.length === 0 && this.sectors === this.publishedSectors) return;
-
-    // On a switch between cells and sectors the server sends all blocks again; the old pictures stay until then.
-    this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest(toRemove, toAdd, this.sectors)));
-    this.publishedBlocks = new Set(this.activeBlocks);
+    const resend = [...this.resend].filter((key) => wanted.has(key));
+    // Back from sectors the server sends the cells of the blocks in view; their sectors show until then.
+    this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest(this.view, this.sectors, resend)));
+    this.publishedView = this.view;
+    this.publishedBlocks = new Set(wanted);
     this.publishedSectors = this.sectors;
+    this.resend.clear();
 
-    // Workers drop what they hold for removed blocks, so one that comes back starts over from its full block.
-    if (toRemove.length > 0) {
-      this.dispatchToWorkers('forget', toRemove.map((key) => {
-        const [x, y] = key.split('/').map(Number);
-        return {x, y};
-      }));
-    }
+    // Workers drop the cells of removed blocks, so one that comes back starts over from its full block.
+    if (toRemove.length > 0) this.dispatchToWorkers('forget', positions(toRemove));
   }
 
   getBlock(key: string): ImageBitmap | undefined {
     return this.blockData.get(key);
-  }
-
-  /** The picture a block fades from, and how far along the fade is, 0 to 1. */
-  getFade(key: string, now: number): {from: ImageBitmap, progress: number} | undefined {
-    const fade = this.fades.get(key);
-    return fade && {from: fade.from, progress: Math.min(1, (now - fade.start) / this.fadeMs)};
-  }
-
-  /** Whether a fade runs, or one ended since the last call and its block needs drawing once more. */
-  isFading(now: number): boolean {
-    let ended = false;
-    for (const [key, fade] of this.fades) {
-      if (now - fade.start < this.fadeMs) continue;
-      this.endFade(key);
-      ended = true;
-    }
-    return ended || this.fades.size > 0;
-  }
-
-  private endFade(key: string): void {
-    this.fades.get(key)?.from.close();
-    this.fades.delete(key);
   }
 
   private teardownSession(): void {
@@ -371,11 +334,18 @@ export class BlockService implements OnDestroy {
     // The server sends nothing for blocks that were pruned meanwhile, so their old picture would stay.
     for (const bitmap of this.blockData.values()) bitmap?.close();
     this.blockData.clear();
-    for (const key of [...this.fades.keys()]) this.endFade(key);
-    this.sectorKeys.clear();
 
+    this.publishedView = null;
     this.publishedBlocks.clear();
+    this.resend.clear();
     this.publishedSectors = false;
     this.generation++;
   }
+}
+
+function positions(keys: Iterable<string>): BlockPosition[] {
+  return [...keys].map((key) => {
+    const [x, y] = key.split('/').map(Number);
+    return {x, y};
+  });
 }
