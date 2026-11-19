@@ -10,9 +10,10 @@ let densityGamma = 0.6;
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 const earlyBorders = new Map<string, FramedBlock[]>();
-// The share of alive cells per sector, 0-255, of the blocks it got sectors for.
+// The share of alive cells per sector, 0-255, of the blocks in view that got sectors.
 const sectorBlocks = new Map<string, Uint8Array>();
-// The blocks in view: those without cells show their sectors.
+// The blocks in view: those without cells show their sectors. Sectors of blocks out of view, which come with a tile of
+// blocks in view, are dropped.
 const visible = new Set<string>();
 // a safety cap, about 25 seconds of ticks
 const maxEarlyBorders = 50;
@@ -65,13 +66,17 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
       const key = getKey(x, y);
       if (type === 'forget') forgetCells(key);
       else visible.add(key);
-      await pushSectors(key, x, y, results);
+      // without sectors, a block in view that lost its cells shows nothing instead of its last cells
+      if (!await pushSectors(key, x, y, results) && type === 'forget' && visible.has(key)) results.push({x, y});
     }
     return;
   }
 
   if (type === 'hide') {
-    for (const {x, y} of payload.data) visible.delete(getKey(x, y));
+    for (const {x, y} of payload.data) {
+      visible.delete(getKey(x, y));
+      sectorBlocks.delete(getKey(x, y));
+    }
     return;
   }
 
@@ -109,6 +114,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
         console.error(e);
       }
     } else if (block.type === SECTOR) {
+      if (!visible.has(key)) continue;
       sectorBlocks.set(key, zstd.decode(block.cells));
       await pushSectors(key, block.x, block.y, results);
     } else {
@@ -118,10 +124,11 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
 
 }
 
-async function pushSectors(key: string, x: number, y: number, results: any[]): Promise<void> {
+async function pushSectors(key: string, x: number, y: number, results: any[]): Promise<boolean> {
   const sectors = sectorBlocks.get(key);
-  if (!sectors || !visible.has(key) || encodedBlocks.has(key)) return;
+  if (!sectors || !visible.has(key) || encodedBlocks.has(key)) return false;
   results.push({bitmap: await toBitmap(sectorImageData(sectors)), x, y});
+  return true;
 }
 
 function forgetCells(key: string): void {
