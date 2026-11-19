@@ -7,8 +7,8 @@ export interface View {
 /** The part of the world the canvas shows, and the mouse, touch and keyboard input that moves it. */
 export class Viewport {
   cellSize = 2.5;
-  // Zoomed out a block of 2000 cells is at least 8 px: further out, going over every block in view takes too long.
-  private readonly minCellSize = 0.004;
+  // Zoomed out a block of 2000 cells is at least 16 px: further out, going over every block in view takes too long.
+  private readonly minCellSize = 0.008;
   private readonly maxCellSize: number = 30;
   width = window.innerWidth;
   height = window.innerHeight - 30;

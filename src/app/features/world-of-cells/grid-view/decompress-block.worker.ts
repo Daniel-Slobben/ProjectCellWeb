@@ -10,7 +10,7 @@ let densityGamma = 0.6;
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 const earlyBorders = new Map<string, FramedBlock[]>();
-// The share of alive cells per sector in 16 levels, two sectors per byte, of every block in the world.
+// The share of alive cells per sector, 0-255, of the blocks it got sectors for.
 const sectorBlocks = new Map<string, Uint8Array>();
 // The blocks in view: those without cells show their sectors.
 const visible = new Set<string>();
@@ -135,18 +135,13 @@ function forgetCells(key: string): void {
  * the columns of the picture, like the cells.
  */
 function sectorImageData(sectors: Uint8Array): ImageData {
-  const size = Math.floor(Math.sqrt(sectors.length * 2));
+  const size = Math.sqrt(sectors.length);
   const imageData = imageOfSize(size);
   const pixels = new Int32Array(imageData.data.buffer);
   for (let x = 0; x < size; x++) {
-    for (let y = 0; y < size; y++) pixels[y * size + x] = densityPixel(level(sectors, x * size + y) / 15);
+    for (let y = 0; y < size; y++) pixels[y * size + x] = densityPixel(sectors[x * size + y] / 255);
   }
   return imageData;
-}
-
-// the first sector of a byte is in its low half
-function level(sectors: Uint8Array, i: number): number {
-  return sectors[i >> 1] >> ((i & 1) << 2) & 15;
 }
 
 function stepWithBorder(key: string, border: FramedBlock): void {
