@@ -10,8 +10,8 @@ let densityGamma = 0.6;
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 const earlyBorders = new Map<string, FramedBlock[]>();
-// Alive cells per sector of the blocks sent as sectors, instead of their cells.
-const sectorBlocks = new Map<string, Uint16Array>();
+// The share of alive cells per sector, 0-255, of the blocks sent as sectors, instead of their cells.
+const sectorBlocks = new Map<string, Uint8Array>();
 // a safety cap, about 25 seconds of ticks
 const maxEarlyBorders = 50;
 
@@ -104,8 +104,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     } else if (block.type === SECTOR) {
       // The cells come again as a FULL block when the client goes back to them.
       forgetCells(key);
-      const bytes = zstd.decode(block.cells);
-      const sectors = Uint16Array.from({length: bytes.length >> 1}, (_, i) => bytes[2 * i] | bytes[2 * i + 1] << 8);
+      const sectors = zstd.decode(block.cells);
       sectorBlocks.set(key, sectors);
       results.push({bitmap: await toBitmap(sectorImageData(sectors)), sector: true, x: block.x, y: block.y});
     } else {
@@ -125,13 +124,12 @@ function forgetCells(key: string): void {
  * One pixel per sector. The backend sends the sectors per band down the rows, each band along the row, and its rows are
  * the columns of the picture, like the cells.
  */
-function sectorImageData(sectors: Uint16Array): ImageData {
+function sectorImageData(sectors: Uint8Array): ImageData {
   const size = Math.sqrt(sectors.length);
-  const sectorCells = (blockSize / size) ** 2;
   const imageData = imageOfSize(size);
   const pixels = new Int32Array(imageData.data.buffer);
   for (let x = 0; x < size; x++) {
-    for (let y = 0; y < size; y++) pixels[y * size + x] = densityPixel(sectors[x * size + y] / sectorCells);
+    for (let y = 0; y < size; y++) pixels[y * size + x] = densityPixel(sectors[x * size + y] / 255);
   }
   return imageData;
 }
