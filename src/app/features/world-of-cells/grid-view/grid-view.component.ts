@@ -191,9 +191,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private updateVisibleBlocks() {
-    const now = performance.now();
-    if (this.drawnGeneration == this.blockService.getGeneration() && this.drawnVersion == this.viewport.version
-      && !this.blockService.isFading(now)) {
+    if (this.drawnGeneration == this.blockService.getGeneration() && this.drawnVersion == this.viewport.version) {
       return;
     }
     const {cellOffsetX, cellOffsetY, cellSize, width, height} = this.viewport;
@@ -227,7 +225,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         const key = getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
-          this.drawBlockWithImageData(blockX, blockY, now);
+          this.drawBlockWithImageData(blockX, blockY);
           drawnBlocks.push({x: blockX, y: blockY});
         }
       }
@@ -243,7 +241,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }, drawnBlocks);
   }
 
-  private drawBlockWithImageData(blockX: number, blockY: number, now: number) {
+  private drawBlockWithImageData(blockX: number, blockY: number) {
     const key = getKey(blockX, blockY);
     let imageData = this.blockService.getBlock(key);
     if (!imageData) {
@@ -266,14 +264,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const snap = (v: number) => Math.round(v * ratio) / ratio;
     const left = snap(blockCanvasX), top = snap(blockCanvasY);
     const width = snap(blockCanvasX + blockPixelSize) - left, height = snap(blockCanvasY + blockPixelSize) - top;
-    // Bitmaps are opaque, so the new one drawn over the old one with alpha is a crossfade.
-    const fade = this.blockService.getFade(key, now);
-    if (fade) {
-      this.ctx.drawImage(fade.from, left, top, width, height);
-      this.ctx.globalAlpha = fade.progress;
-    }
     this.ctx.drawImage(imageData, left, top, width, height);
-    this.ctx.globalAlpha = 1;
 
     if (this.settings.borders()) {
       this.ctx.lineWidth = 1;

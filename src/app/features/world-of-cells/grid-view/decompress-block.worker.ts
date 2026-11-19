@@ -55,7 +55,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
       const sectors = sectorBlocks.get(getKey(x, y));
       if (!data && !sectors) continue;
       const bitmap = await toBitmap(data ? decodeByteArrayToImageData(data) : sectorImageData(sectors!));
-      results.push({bitmap, sector: !data, x, y});
+      results.push({bitmap, x, y});
     }
     return;
   }
@@ -121,7 +121,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
 async function pushSectors(key: string, x: number, y: number, results: any[]): Promise<void> {
   const sectors = sectorBlocks.get(key);
   if (!sectors || !visible.has(key) || encodedBlocks.has(key)) return;
-  results.push({bitmap: await toBitmap(sectorImageData(sectors)), sector: true, x, y});
+  results.push({bitmap: await toBitmap(sectorImageData(sectors)), x, y});
 }
 
 function forgetCells(key: string): void {

@@ -18,7 +18,6 @@ interface WorkerResult {
   bitmap?: ImageBitmap;
   error?: boolean;
   border?: boolean;
-  sector?: boolean;
   x: number;
   y: number;
 }
@@ -42,10 +41,6 @@ export class BlockService implements OnDestroy {
   // cells come.
   public sectors = false;
   private publishedSectors = false;
-  // A block that changes between cells and sectors, or gets new sectors, fades from its old picture to the new one.
-  private readonly fadeMs = 300;
-  private readonly fades = new Map<string, {from: ImageBitmap, start: number}>();
-  private readonly sectorKeys = new Set<string>();
 
   private workers: Worker[] = [];
   private readonly workerCount = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
@@ -231,7 +226,7 @@ export class BlockService implements OnDestroy {
 
     const errorBlock: string[] = [];
 
-    for (const {bitmap, error, sector, x, y} of results) {
+    for (const {bitmap, error, x, y} of results) {
       const key = getKey(x, y);
 
       if (error) {
@@ -239,15 +234,7 @@ export class BlockService implements OnDestroy {
         continue;
       }
 
-      const old = this.blockData.get(key);
-      if (old && bitmap && (sector || this.sectorKeys.has(key))) {
-        this.fades.get(key)?.from.close();
-        this.fades.set(key, {from: old, start: performance.now()});
-      } else {
-        old?.close();
-      }
-      if (sector) this.sectorKeys.add(key);
-      else this.sectorKeys.delete(key);
+      this.blockData.get(key)?.close();
       this.blockData.set(key, bitmap);
     }
     if (errorBlock.length > 0) {
@@ -266,8 +253,6 @@ export class BlockService implements OnDestroy {
       if (!visibleKeys.has(key)) {
         bitmap?.close();
         this.blockData.delete(key);
-        this.endFade(key);
-        this.sectorKeys.delete(key);
       }
     }
     this.dropDelayed((key) => !visibleKeys.has(key));
@@ -336,28 +321,6 @@ export class BlockService implements OnDestroy {
     return this.blockData.get(key);
   }
 
-  /** The picture a block fades from, and how far along the fade is, 0 to 1. */
-  getFade(key: string, now: number): {from: ImageBitmap, progress: number} | undefined {
-    const fade = this.fades.get(key);
-    return fade && {from: fade.from, progress: Math.min(1, (now - fade.start) / this.fadeMs)};
-  }
-
-  /** Whether a fade runs, or one ended since the last call and its block needs drawing once more. */
-  isFading(now: number): boolean {
-    let ended = false;
-    for (const [key, fade] of this.fades) {
-      if (now - fade.start < this.fadeMs) continue;
-      this.endFade(key);
-      ended = true;
-    }
-    return ended || this.fades.size > 0;
-  }
-
-  private endFade(key: string): void {
-    this.fades.get(key)?.from.close();
-    this.fades.delete(key);
-  }
-
   private teardownSession(): void {
     if (this.publishTimer !== null) {
       clearTimeout(this.publishTimer);
@@ -382,8 +345,6 @@ export class BlockService implements OnDestroy {
     // The server sends nothing for blocks that were pruned meanwhile, so their old picture would stay.
     for (const bitmap of this.blockData.values()) bitmap?.close();
     this.blockData.clear();
-    for (const key of [...this.fades.keys()]) this.endFade(key);
-    this.sectorKeys.clear();
 
     this.publishedBlocks.clear();
     this.publishedSectors = false;
