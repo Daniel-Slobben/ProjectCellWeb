@@ -10,8 +10,10 @@ let densityGamma = 0.6;
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 const earlyBorders = new Map<string, FramedBlock[]>();
-// The share of alive cells per sector in 16 levels, two sectors per byte, of the blocks sent as sectors, instead of their cells.
+// The share of alive cells per sector in 16 levels, two sectors per byte, of every block in the world.
 const sectorBlocks = new Map<string, Uint8Array>();
+// The blocks in view: those without cells show their sectors.
+const visible = new Set<string>();
 // a safety cap, about 25 seconds of ticks
 const maxEarlyBorders = 50;
 
@@ -58,12 +60,18 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     return;
   }
 
-  if (type === 'forget') {
+  if (type === 'forget' || type === 'show') {
     for (const {x, y} of payload.data) {
       const key = getKey(x, y);
-      forgetCells(key);
-      sectorBlocks.delete(key);
+      if (type === 'forget') forgetCells(key);
+      else visible.add(key);
+      await pushSectors(key, x, y, results);
     }
+    return;
+  }
+
+  if (type === 'hide') {
+    for (const {x, y} of payload.data) visible.delete(getKey(x, y));
     return;
   }
 
@@ -71,7 +79,6 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     const key = getKey(block.x, block.y);
 
     if (block.type === FULL) {
-      sectorBlocks.delete(key);
       encodedBlocks.set(key, decodeFull(block.cells));
       blockGenerationMap.set(key, block.generation);
       for (const border of takeEarlyBorders(key, block.generation)) {
@@ -102,16 +109,19 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
         console.error(e);
       }
     } else if (block.type === SECTOR) {
-      // The cells come again as a FULL block when the client goes back to them.
-      forgetCells(key);
-      const sectors = zstd.decode(block.cells);
-      sectorBlocks.set(key, sectors);
-      results.push({bitmap: await toBitmap(sectorImageData(sectors)), sector: true, x: block.x, y: block.y});
+      sectorBlocks.set(key, zstd.decode(block.cells));
+      await pushSectors(key, block.x, block.y, results);
     } else {
       console.warn(`Unknown block type ${block.type} for ${key}`);
     }
   }
 
+}
+
+async function pushSectors(key: string, x: number, y: number, results: any[]): Promise<void> {
+  const sectors = sectorBlocks.get(key);
+  if (!sectors || !visible.has(key) || encodedBlocks.has(key)) return;
+  results.push({bitmap: await toBitmap(sectorImageData(sectors)), sector: true, x, y});
 }
 
 function forgetCells(key: string): void {

@@ -37,7 +37,9 @@ export class BlockService implements OnDestroy {
 
   public activeBlocks = new Set<string>();
   private publishedBlocks = new Set<string>();
-  // Zoomed far out the server sends the alive cells per sector of each block, every few ticks, instead of the cells.
+  // The server sends the sectors of every block in the world every few seconds, more often to clients that watch sectors.
+  // Zoomed far out the client watches sectors and asks for no blocks; zoomed in, a block shows its sectors until its
+  // cells come.
   public sectors = false;
   private publishedSectors = false;
   // A block that changes between cells and sectors, or gets new sectors, fades from its old picture to the new one.
@@ -134,6 +136,7 @@ export class BlockService implements OnDestroy {
     }
 
     this.dispatchToWorkers('init', []);
+    this.dispatchToWorkers('show', positions(this.activeBlocks));
   }
 
   setRendering(rendering: Rendering, visible: BlockPosition[]): void {
@@ -143,7 +146,7 @@ export class BlockService implements OnDestroy {
     this.dispatchToWorkers('rescale', visible.filter(({x, y}) => this.blockData.has(getKey(x, y))));
   }
 
-  private dispatchToWorkers(type: 'init' | 'rescale' | 'forget', blocks: BlockPosition[]): void {
+  private dispatchToWorkers(type: 'init' | 'rescale' | 'forget' | 'show' | 'hide', blocks: BlockPosition[]): void {
     // Before the first connection there are no workers, and nothing for them to forget.
     if (this.workers.length === 0) return;
     const perWorker: BlockPosition[][] = this.workers.map(() => []);
@@ -269,6 +272,12 @@ export class BlockService implements OnDestroy {
     }
     this.dropDelayed((key) => !visibleKeys.has(key));
 
+    // Workers draw the sectors of the blocks in view that have no cells.
+    const shown = [...visibleKeys].filter((key) => !this.activeBlocks.has(key));
+    const hidden = [...this.activeBlocks].filter((key) => !visibleKeys.has(key));
+    if (shown.length > 0) this.dispatchToWorkers('show', positions(shown));
+    if (hidden.length > 0) this.dispatchToWorkers('hide', positions(hidden));
+
     this.activeBlocks = new Set(visibleKeys);
     this.schedulePublish();
   }
@@ -285,40 +294,42 @@ export class BlockService implements OnDestroy {
     }, this.publishWindowMs);
   }
 
+  // Watching sectors, the client asks for no blocks: the sectors of all of them come anyway.
+  private wantedBlocks(): Set<string> {
+    return this.sectors ? new Set() : this.activeBlocks;
+  }
+
   private hasDrift(): boolean {
     if (this.sectors !== this.publishedSectors) return true;
-    if (this.activeBlocks.size !== this.publishedBlocks.size) return true;
-    for (const key of this.activeBlocks) {
+    const wanted = this.wantedBlocks();
+    if (wanted.size !== this.publishedBlocks.size) return true;
+    for (const key of wanted) {
       if (!this.publishedBlocks.has(key)) return true;
     }
     return false;
   }
 
   private publishDelta(): void {
+    const wanted = this.wantedBlocks();
     const toRemove: string[] = [];
     for (const key of this.publishedBlocks) {
-      if (!this.activeBlocks.has(key)) toRemove.push(key);
+      if (!wanted.has(key)) toRemove.push(key);
     }
 
     const toAdd: string[] = [];
-    for (const key of this.activeBlocks) {
+    for (const key of wanted) {
       if (!this.publishedBlocks.has(key)) toAdd.push(key);
     }
 
     if (toRemove.length === 0 && toAdd.length === 0 && this.sectors === this.publishedSectors) return;
 
-    // On a switch between cells and sectors the server sends all blocks again; the old pictures stay until then.
+    // Back from sectors the server sends the cells of the blocks in view; their sectors show until then.
     this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest(toRemove, toAdd, this.sectors)));
-    this.publishedBlocks = new Set(this.activeBlocks);
+    this.publishedBlocks = new Set(wanted);
     this.publishedSectors = this.sectors;
 
-    // Workers drop what they hold for removed blocks, so one that comes back starts over from its full block.
-    if (toRemove.length > 0) {
-      this.dispatchToWorkers('forget', toRemove.map((key) => {
-        const [x, y] = key.split('/').map(Number);
-        return {x, y};
-      }));
-    }
+    // Workers drop the cells of removed blocks, so one that comes back starts over from its full block.
+    if (toRemove.length > 0) this.dispatchToWorkers('forget', positions(toRemove));
   }
 
   getBlock(key: string): ImageBitmap | undefined {
@@ -378,4 +389,11 @@ export class BlockService implements OnDestroy {
     this.publishedSectors = false;
     this.generation++;
   }
+}
+
+function positions(keys: Iterable<string>): BlockPosition[] {
+  return [...keys].map((key) => {
+    const [x, y] = key.split('/').map(Number);
+    return {x, y};
+  });
 }

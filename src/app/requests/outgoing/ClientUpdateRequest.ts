@@ -1,7 +1,7 @@
 export class ClientUpdateRequest {
   blocksToRemove: string[];
   blocksToAdd: string[];
-  // The alive cells per sector of the blocks instead of their cells.
+  // No blocks, only the sectors of every block, more often.
   sectors: boolean;
 
   constructor(blocksToRemove: string[], blocksToAdd: string[], sectors: boolean) {

@@ -10,8 +10,9 @@
 // raw WebSocket at /ws, where each connection is one client that subscribes to /user/queue/blocks. Like
 // the backend, it answers every /client-update with one MESSAGE per added block holding its FULL, and
 // every tick sends each client one MESSAGE with a BORDER for each block it already has (an empty one if
-// it has none). A client that asks for sectors gets all its blocks again as SECTORs, one message per
-// /client-update and every 4 ticks, and no FULLs or BORDERs. Block messages are binary frames (application/octet-stream) in the layout of
+// it has none). Every client gets the sector map, the SECTORs of the 41 by 41 blocks around the start in messages of
+// 250, with its first /client-update and every 10 s; a client that watches sectors gets it when it switches and every
+// 3 s, and no FULLs or BORDERs. Block messages are binary frames (application/octet-stream) in the layout of
 // src/app/features/world-of-cells/grid-view/block-frame.ts. Every block exists, so it never sends
 // NO_BLOCKS, and it has no heartbeats: --pattern lines sends nothing per tick.
 // The cells are a recording of world-of-cells.net by record.mjs: each block a client adds gets a recorded FULL, then
@@ -319,28 +320,33 @@ export async function startServer(options = {}) {
     }, Buffer.concat(parts)));
   };
   const ready = (client) => client.subscription !== null;
-  /** One message per FULL, or one with all SECTORs, for every subscribed block the client has not had yet. */
+  /** One message per FULL for every subscribed block the client has not had yet. */
   const sendFulls = (client) => {
     if (!ready(client)) return;
     const unsent = [...client.keys].filter((key) => !client.sent.has(key));
     for (const key of unsent) client.sent.set(key, worldGeneration);
-    if (client.sectors) {
-      if (unsent.length > 0) sendBlocks(client, unsent, 'SECTOR');
-      return;
-    }
     for (const key of unsent) sendBlocks(client, [key], 'FULL');
   };
+  const homeX = Math.floor(home.x / blockSize), homeY = Math.floor(home.y / blockSize);
+  const mapKeys = Array.from({length: 41 * 41}, (_, i) => `${homeX + i % 41 - 20}/${homeY + Math.floor(i / 41) - 20}`);
+  const sendSectorMap = (client) => {
+    if (!ready(client)) return;
+    for (let i = 0; i < mapKeys.length; i += 250) sendBlocks(client, mapKeys.slice(i, i + 250), 'SECTOR');
+  };
+  const ticksPer = (ms) => Math.max(1, Math.floor(ms / opts.tick));
 
   const tick = () => {
     if (opts.pattern !== 'lines') worldGeneration++;
-    const sectorTick = ticks++ % 4 === 0;
+    const t = ticks++;
+    const sectorMapTick = t % ticksPer(3000) === 0, cellsMapTick = t % ticksPer(10000) === 0;
     for (const client of clients) {
       if (!ready(client)) continue;
       if (client.sectors) {
-        if (sectorTick) sendBlocks(client, [...client.sent.keys()], 'SECTOR');
-      } else if (opts.pattern !== 'lines') {
-        sendBlocks(client, [...client.sent.keys()], 'BORDER');
+        if (sectorMapTick) sendSectorMap(client);
+        continue;
       }
+      if (opts.pattern !== 'lines') sendBlocks(client, [...client.sent.keys()], 'BORDER');
+      if (cellsMapTick) sendSectorMap(client);
       // Only blocks added before the subscription existed are still waiting for their FULL.
       sendFulls(client);
     }
@@ -364,11 +370,17 @@ export async function startServer(options = {}) {
         case 'SEND': {
           if (frame.headers.destination === '/client-update') {
             const update = JSON.parse(frame.body);
-            // Switching between cells and sectors, all blocks are sent again.
-            if (!!update.sectors !== client.sectors) {
-              client.sectors = !!update.sectors;
+            const switched = !!update.sectors !== client.sectors;
+            const first = client.keys.size === 0 && !switched;
+            client.sectors = !!update.sectors;
+            // Watching sectors, the client asks for no blocks.
+            if (client.sectors) {
+              client.keys.clear();
               client.sent.clear();
+              if (switched) sendSectorMap(client);
+              break;
             }
+            if (first) sendSectorMap(client);
             for (const key of update.blocksToRemove ?? []) { client.keys.delete(key); client.sent.delete(key); }
             // Adds also cover the client's error path, which re-adds a key to get a fresh FULL.
             for (const key of update.blocksToAdd ?? []) { client.keys.add(key); client.sent.delete(key); }
