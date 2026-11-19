@@ -338,16 +338,25 @@ export async function startServer(options = {}) {
     if (!ready(client)) return;
     for (let i = 0; i < keys.length; i += 250) sendBlocks(client, keys.slice(i, i + 250), 'SECTOR');
   };
+  // Like ClientService: a message per tile of 16 x 16 blocks that overlaps the view.
+  const sendTiles = (client) => {
+    const {minX, maxX, minY, maxY} = client.view;
+    for (let tx = Math.floor(minX / 16); tx <= Math.floor(maxX / 16); tx++) {
+      for (let ty = Math.floor(minY / 16); ty <= Math.floor(maxY / 16); ty++) {
+        sendBlocks(client, keysIn({minX: tx * 16, maxX: tx * 16 + 15, minY: ty * 16, maxY: ty * 16 + 15}), 'SECTOR');
+      }
+    }
+  };
   const ticksPer = (ms) => Math.max(1, Math.floor(ms / opts.tick));
 
   const tick = () => {
     if (opts.pattern !== 'lines') worldGeneration++;
     const t = ticks++;
-    const sectorTick = t % ticksPer(10000) === 0;
     for (const client of clients) {
       if (!ready(client)) continue;
       if (client.sectors) {
-        if (sectorTick && client.view) sendSectors(client, keysIn(client.view));
+        // each client on its own tick of the 10 s
+        if (client.id % ticksPer(10000) === t % ticksPer(10000) && client.view) sendTiles(client);
         continue;
       }
       if (opts.pattern !== 'lines') sendBlocks(client, [...client.sent.keys()], 'BORDER');
