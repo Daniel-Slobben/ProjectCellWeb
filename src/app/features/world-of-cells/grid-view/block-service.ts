@@ -36,9 +36,8 @@ export class BlockService implements OnDestroy {
 
   public activeBlocks = new Set<string>();
   private publishedBlocks = new Set<string>();
-  // The server sends the sectors of every block in the world every few seconds, more often to clients that watch sectors.
-  // Zoomed far out the client watches sectors and asks for no blocks; zoomed in, a block shows its sectors until its
-  // cells come.
+  // Zoomed far out the client watches sectors: it asks for no blocks and gets the sectors of every block every 10 s.
+  // Zoomed back in, a block shows its sectors until its cells come.
   public sectors = false;
   private publishedSectors = false;
 
