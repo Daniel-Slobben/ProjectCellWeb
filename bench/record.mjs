@@ -41,7 +41,7 @@ const done = new Promise((resolve, reject) => {
       if (data.startsWith('CONNECTED')) {
         send('SUBSCRIBE', {id: 'sub-0', destination: '/user/queue/blocks'});
         send('SEND', {destination: '/client-update', 'content-type': 'application/json'},
-          JSON.stringify({blocksToRemove: [], blocksToAdd: [...blocks.keys()]}));
+          JSON.stringify({minX: left, maxX: left + columns - 1, minY: top, maxY: top + rows - 1, sectors: false, resend: []}));
       } else if (data.startsWith('ERROR') || data.includes('NO_BLOCKS')) {
         reject(new Error(data.replace(/\0$/, '')));
       }

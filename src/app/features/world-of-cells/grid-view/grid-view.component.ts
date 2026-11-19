@@ -238,7 +238,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const sectorPixels = cellSize * this.sectorSize, switchPixels = Math.max(this.settings.sectorPixels(), budgetPixels);
     if (sectorPixels <= switchPixels) this.blockService.setSectors(true);
     else if (sectorPixels > 1.1 * switchPixels) this.blockService.setSectors(false);
-    this.blockService.updateVisible(currentVisibleBlocks);
+    this.blockService.updateVisible({
+      minX: startBlockX - requestBottomX, maxX: endBlockX + requestTopX, minY: startBlockY - requestBottomY, maxY: endBlockY + requestTopY,
+    }, currentVisibleBlocks);
     this.blockService.setRendering({
       poolFactor: this.poolFactorForZoom(), alive: this.settings.alive(), dead: this.settings.dead(), gamma: this.settings.gamma(),
     }, drawnBlocks);
