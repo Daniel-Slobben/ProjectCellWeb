@@ -31,6 +31,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   protected blockSize: number = 500;
   // The backend's sectors, in cells.
   private readonly sectorSize = 50;
+  private readonly maxCellBlocks = 250;
   private viewport!: Viewport;
 
   // Visited views; Previous and Next step through them and fetch a new viewport past either end.
@@ -231,8 +232,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       }
     }
     // Sectors once they are small on screen. CSS pixels are about the same size on a phone and a monitor, so a sector
-    // at 1 px is as fine on either. Back to cells a bit above that, so zooming around it does not switch back and forth.
-    const sectorPixels = cellSize * this.sectorSize, switchPixels = this.settings.sectorPixels();
+    // at 1 px is as fine on either. A big screen switches earlier, once the view holds 250 blocks: that many full blocks
+    // is as much as a phone gets. Back to cells a bit above that, so zooming around it does not switch back and forth.
+    const budgetPixels = Math.sqrt(width * height / this.maxCellBlocks) * this.sectorSize / this.blockSize;
+    const sectorPixels = cellSize * this.sectorSize, switchPixels = Math.max(this.settings.sectorPixels(), budgetPixels);
     if (sectorPixels <= switchPixels) this.blockService.setSectors(true);
     else if (sectorPixels > 1.1 * switchPixels) this.blockService.setSectors(false);
     this.blockService.updateVisible(currentVisibleBlocks);
