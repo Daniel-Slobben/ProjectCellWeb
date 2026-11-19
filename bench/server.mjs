@@ -96,10 +96,12 @@ function fullPayload(raw, blockSize) {
   return compress(Uint8Array.from(runs));
 }
 
-// The share of alive cells per sector of 50 by 50 cells as a u8 of 0-255, between none and twice the density.
+// The share of alive cells per sector of 50 by 50 cells in 16 levels, two per byte with the first in the low half,
+// between none and twice the density.
 function sectorPayload(blockSize, density, rnd) {
   const sectors = blockSize / 50;
-  return compress(new Uint8Array(sectors * sectors).map(() => Math.ceil(255 * Math.min(1, density * 2 * rnd()))));
+  const level = () => Math.ceil(15 * Math.min(1, density * 2 * rnd()));
+  return compress(new Uint8Array((sectors * sectors + 1) >> 1).map(() => level() | level() << 4));
 }
 
 // Cells are column-major (bit x * blockSize + y): 0xff fills even columns, 0x55 even rows.
