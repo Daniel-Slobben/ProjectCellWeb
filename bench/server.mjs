@@ -355,8 +355,11 @@ export async function startServer(options = {}) {
     for (const client of clients) {
       if (!ready(client)) continue;
       if (client.sectors) {
-        // each client on its own tick of the 10 s
-        if (client.id % ticksPer(10000) === t % ticksPer(10000) && client.view) sendTiles(client);
+        // each client on its own tick of its period: a tick per 250 blocks in view, at most 10 s
+        if (!client.view) continue;
+        const {minX, maxX, minY, maxY} = client.view;
+        const period = Math.min(ticksPer(10000), Math.max(1, Math.ceil((maxX - minX + 1) * (maxY - minY + 1) / 250)));
+        if (client.id % period === t % period) sendTiles(client);
         continue;
       }
       if (opts.pattern !== 'lines') sendBlocks(client, [...client.sent.keys()], 'BORDER');

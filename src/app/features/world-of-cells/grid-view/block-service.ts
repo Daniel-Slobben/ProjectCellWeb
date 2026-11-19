@@ -42,7 +42,8 @@ export class BlockService implements OnDestroy {
   private publishedBlocks = new Set<string>();
   // Blocks whose cells went wrong, to get their full block again.
   private readonly resend = new Set<string>();
-  // Zoomed far out the client watches sectors: it gets the sectors of the blocks in view every 10 s, instead of cells.
+  // Zoomed far out the client watches sectors: it gets the sectors of the blocks in view instead of cells, every tick at
+  // 250 blocks in view, less often the more blocks are in view, at least every 10 s.
   // Zoomed back in, a block shows its sectors until its cells come.
   public sectors = false;
   private publishedSectors = false;
