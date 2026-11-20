@@ -62,8 +62,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
               private readonly viewCenter: ViewCenter, protected readonly settings: DisplaySettings) {
     // A changed setting shows at once, not on the next tick.
     effect(() => {
-      const {borders, smoothing, alive, dead, gamma, sectorPixels} = this.settings;
-      borders(); smoothing(); alive(); dead(); gamma(); sectorPixels();
+      const {borders, smoothing, alive, dead, gamma} = this.settings;
+      borders(); smoothing(); alive(); dead(); gamma();
       this.drawnGeneration = -1;
     });
   }
@@ -249,7 +249,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     // stays under the backend's max-cell-blocks of 600. Back to cells a bit above that, so zooming around it does not
     // switch back and forth.
     const budgetPixels = Math.sqrt(width * height / this.maxCellBlocks) * this.sectorSize / this.blockSize;
-    const sectorPixels = cellSize * this.sectorSize, switchPixels = Math.max(this.settings.sectorPixels(), budgetPixels);
+    const sectorPixels = cellSize * this.sectorSize, switchPixels = Math.max(1, budgetPixels);
     if (sectorPixels <= switchPixels) this.blockService.setSectors(true);
     else if (sectorPixels > 1.1 * switchPixels) this.blockService.setSectors(false);
     this.blockService.updateVisible({
