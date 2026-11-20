@@ -4,6 +4,10 @@
           [style.--coordinates-em]="coordinatesEm()">
       x: {{viewCenter.x()}} y: {{viewCenter.y()}}
     </span>
+    <span class="scale" [title]="scale().title">
+      <span class="scale-bar" [style.width.px]="scale().pixels" [style.--segments]="scale().segments"></span>
+      {{ scale().label }}
+    </span>
     <button class="w3-bar-item w3-button w3-padding-large"
             (click)="settingsOpen.set(!settingsOpen())"
             (document:keydown)="onKeyDown($event)"
