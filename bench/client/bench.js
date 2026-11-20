@@ -476,6 +476,19 @@
       run: (ms) => { const {w, h} = size(); return drag(ms, (t) => ({x: w / 2 + 250 * Math.cos(2 * Math.PI * t / 2000), y: h / 2 + 250 * Math.sin(2 * Math.PI * t / 2000)})); }},
     {name: 'pan-close', extra: true, zoom: 4, desc: 'cellSize 4 (the default), circular drag r 250 px: 1-4 blocks, mostly off screen',
       run: (ms) => { const {w, h} = size(); return drag(ms, (t) => ({x: w / 2 + 250 * Math.cos(2 * Math.PI * t / 2000), y: h / 2 + 250 * Math.sin(2 * Math.PI * t / 2000)})); }},
+    {name: 'sectors-after-pan', extra: true, zoom: 0.5,
+      desc: 'out to 0.06, a 600 px drag while its full blocks are on their way, 5 s later out to 0.03 (sectors), 12 s rest. Run with --mbps',
+      run: async (ms) => {
+        const {w, h} = size();
+        await zoomTo(0.06);
+        await drag(300, (t) => ({x: w / 2 - 300 + 600 * t / 300, y: h / 2}));
+        await sleep(5000);
+        for (let i = 0; i < 14; i++) {
+          wheel(w / 2, h / 2, 100);
+          await nextFrame();
+        }
+        await sleep(Math.max(ms, 12000));
+      }},
   ];
   scenarios.sort((a, b) => Number(!!a.extra) - Number(!!b.extra));
   const scenarioByName = new Map(scenarios.map((s) => [s.name, s]));
@@ -573,6 +586,7 @@
       coverage: {
         mean: r3(draws.length ? sum(draws.map((d) => d.cover)) / draws.length : null),
         min: r3(pct(draws.map((d) => d.cover), 0)),
+        end: r3(state.coverage),
         framesBelow98: draws.filter((d) => d.cover < 0.98).length,
       },
       net: {
