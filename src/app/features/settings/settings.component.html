@@ -7,6 +7,14 @@
         [attr.aria-pressed]="settings.smoothing()">
   <span class="box" [class.on]="settings.smoothing()"></span> Smoothing
 </button>
+<button class="w3-button row" (click)="settings.coordinates.set(!settings.coordinates())"
+        [attr.aria-pressed]="settings.coordinates()">
+  <span class="box" [class.on]="settings.coordinates()"></span> Show coordinates
+</button>
+<button class="w3-button row" (click)="settings.scale.set(!settings.scale())"
+        [attr.aria-pressed]="settings.scale()">
+  <span class="box" [class.on]="settings.scale()"></span> Show scale
+</button>
 
 <div class="section">Theme</div>
 <div class="themes">

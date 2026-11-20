@@ -3,6 +3,7 @@ import {WorldOfCellsComponent} from './features/world-of-cells/world-of-cells.co
 import {SettingsComponent} from './features/settings/settings.component';
 import {GearIconComponent} from './shared/icons/gear-icon.component';
 import {ViewCenter} from './shared/view-center';
+import {DisplaySettings} from './shared/display-settings';
 
 const compact = new Intl.NumberFormat('en', {notation: 'compact'});
 
@@ -16,9 +17,10 @@ const compact = new Intl.NumberFormat('en', {notation: 'compact'});
 export class AppComponent {
   protected readonly settingsOpen = signal(false);
   protected readonly viewCenter = inject(ViewCenter);
+  protected readonly settings = inject(DisplaySettings);
   protected readonly coordinatesEm = computed(() =>
     4 + 0.75 * (String(this.viewCenter.x()).length + String(this.viewCenter.y()).length));
-  // As wide as the ruler's slot in the CSS: twice as wide with a mouse, on a desktop screen.
+  // The ruler's --slot in the CSS: wider with a mouse, on a desktop screen.
   private readonly maxScalePixels = matchMedia('(hover: hover)').matches ? 160 : 64;
   // The longest ruler of 1, 2 or 5 times a power of ten cells that fits its slot, cut into whole cells when it is
   // only a few, else into 4 or 5 parts.

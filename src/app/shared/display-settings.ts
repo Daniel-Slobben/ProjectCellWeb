@@ -40,6 +40,8 @@ function isDark(alive: string, dead: string): boolean {
 export class DisplaySettings {
   readonly borders = signal(false);
   readonly smoothing = signal(true);
+  readonly coordinates = signal(true);
+  readonly scale = signal(true);
   readonly alive = signal(THEMES[1].alive);
   readonly dead = signal(THEMES[1].dead);
   // Zoomed out, how far a patch's share of alive cells moves it towards the alive colour: lower shows sparse life more,
@@ -49,7 +51,7 @@ export class DisplaySettings {
   constructor() {
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
-      for (const name of ['borders', 'smoothing', 'alive', 'dead'] as const) {
+      for (const name of ['borders', 'smoothing', 'coordinates', 'scale', 'alive', 'dead'] as const) {
         if (saved[name] !== undefined) (this[name] as any).set(saved[name]);
       }
     } catch {
@@ -62,7 +64,8 @@ export class DisplaySettings {
       root.setProperty('--dead', this.dead());
 
       const settings = {
-        borders: this.borders(), smoothing: this.smoothing(), alive: this.alive(), dead: this.dead(),
+        borders: this.borders(), smoothing: this.smoothing(), coordinates: this.coordinates(), scale: this.scale(),
+        alive: this.alive(), dead: this.dead(),
       };
       try {
         localStorage.setItem(storageKey, JSON.stringify(settings));
