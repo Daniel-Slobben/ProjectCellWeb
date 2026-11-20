@@ -334,7 +334,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         const left = at(x) - at(range.minX), top = at(y) - at(range.minY), width = at(x + 1) - at(x), height = at(y + 1) - at(y);
         ctx.clearRect(left, top, width, height);
         const bitmap = this.blockService.getBlock(key);
-        if (bitmap) ctx.drawImage(bitmap, left, top, width, height);
+        if (!bitmap) continue;
+        ctx.drawImage(bitmap, left, top, width, height);
         // Half a line inside each block, so redrawing a neighbour leaves it be.
         if (this.settings.borders()) ctx.strokeRect(left + ratio / 4, top + ratio / 4, width - ratio / 2, height - ratio / 2);
       }
