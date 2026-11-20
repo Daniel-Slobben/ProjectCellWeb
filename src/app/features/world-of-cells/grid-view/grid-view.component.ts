@@ -17,6 +17,7 @@ import {ViewCenter} from '../../../shared/view-center';
 import {ArrowIconComponent} from '../../../shared/icons/arrow-icon.component';
 import {DisplaySettings} from '../../../shared/display-settings';
 import {View, Viewport} from './viewport';
+import {BlockRange} from '../../../requests/outgoing/ClientUpdateRequest';
 
 @Component({
   selector: 'grid-view',
@@ -44,6 +45,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   private drawnGeneration = 0;
   private drawnVersion = 0;
+  // Sectors put thousands of small bitmaps in view, and Chrome and Safari take 100 ms and more to draw them one by one.
+  // They are drawn into this canvas instead: a frame draws the canvas, plus the blocks a pan brought into view and the
+  // blocks that changed.
+  private sectorView?: {canvas: OffscreenCanvas, cellSize: number, ratio: number, range: BlockRange};
+  private spareSectorCanvas?: OffscreenCanvas;
 
   private animationFrameId?: number;
 
@@ -65,6 +71,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       const {borders, smoothing, alive, dead, gamma} = this.settings;
       borders(); smoothing(); alive(); dead(); gamma();
       this.drawnGeneration = -1;
+      this.sectorView = undefined;
     });
   }
 
@@ -189,6 +196,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     this.ctx.imageSmoothingQuality = 'high';
     this.drawnGeneration = -1;
+    this.sectorView = undefined;
     // Moving to a screen with another pixel ratio fires no resize.
     this.pixelRatioQuery?.removeEventListener('change', this.resizeCanvas);
     this.pixelRatioQuery = matchMedia(`(resolution: ${ratio}dppx)`);
@@ -233,6 +241,9 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     const currentVisibleBlocks = new Set<string>();
     const drawnBlocks: {x: number, y: number}[] = [];
+    const changed = this.blockService.takeChanged();
+    const sectors = this.blockService.sectors;
+    if (!sectors) this.sectorView = this.spareSectorCanvas = undefined;
 
     // One ring of blocks around the visible area, so small pans and zooms find them loaded.
     for (let blockX = startBlockX - requestBottomX; blockX <= endBlockX + requestTopX; blockX++) {
@@ -240,11 +251,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         const key = getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
-          this.drawBlockWithImageData(blockX, blockY);
+          if (!sectors) this.drawBlockWithImageData(blockX, blockY);
           drawnBlocks.push({x: blockX, y: blockY});
         }
       }
     }
+    if (sectors) this.drawSectorView({minX: startBlockX, maxX: endBlockX, minY: startBlockY, maxY: endBlockY}, changed);
     // Sectors once they are small on screen. CSS pixels are about the same size on a phone and a monitor, so a sector
     // at 1 px is as fine on either. A big screen switches earlier, once the view holds 350 blocks: with the ring that
     // stays under the backend's max-cell-blocks of 600. Back to cells a bit above that, so zooming around it does not
@@ -295,6 +307,44 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  private drawSectorView(range: BlockRange, changed: Set<string> | null) {
+    const {cellOffsetX, cellOffsetY, cellSize} = this.viewport;
+    const ratio = window.devicePixelRatio, blockPixels = this.blockSize * cellSize * ratio;
+    const at = (block: number) => Math.round(block * blockPixels);
+    const old = this.sectorView?.cellSize === cellSize && this.sectorView.ratio === ratio && changed ? this.sectorView : undefined;
+    let view = old;
+    if (!view || !sameRange(view.range, range)) {
+      const canvas = this.spareSectorCanvas ?? new OffscreenCanvas(1, 1);
+      canvas.width = at(range.maxX + 1) - at(range.minX);
+      canvas.height = at(range.maxY + 1) - at(range.minY);
+      if (old) canvas.getContext('2d')!.drawImage(old.canvas, at(old.range.minX) - at(range.minX), at(old.range.minY) - at(range.minY));
+      this.spareSectorCanvas = this.sectorView?.canvas;
+      view = {canvas, cellSize, ratio, range};
+      this.sectorView = view;
+    }
+
+    const ctx = view.canvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.lineWidth = ratio / 2;
+    ctx.strokeStyle = this.settings.alive() + '80';
+    for (let x = range.minX; x <= range.maxX; x++) {
+      for (let y = range.minY; y <= range.maxY; y++) {
+        const key = getKey(x, y);
+        if (old && inRange(old.range, x, y) && !changed!.has(key)) continue;
+        const left = at(x) - at(range.minX), top = at(y) - at(range.minY), width = at(x + 1) - at(x), height = at(y + 1) - at(y);
+        ctx.clearRect(left, top, width, height);
+        const bitmap = this.blockService.getBlock(key);
+        if (bitmap) ctx.drawImage(bitmap, left, top, width, height);
+        // Half a line inside each block, so redrawing a neighbour leaves it be.
+        if (this.settings.borders()) ctx.strokeRect(left + ratio / 4, top + ratio / 4, width - ratio / 2, height - ratio / 2);
+      }
+    }
+
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.drawImage(view.canvas, at(range.minX) - Math.round(cellOffsetX * cellSize * ratio), at(range.minY) - Math.round(cellOffsetY * cellSize * ratio));
+    this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  }
+
   // In physical pixels, matching the ratio the canvas is scaled by.
   private devicePixelsPerCell(): number {
     return this.viewport.cellSize * window.devicePixelRatio;
@@ -306,4 +356,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const smallestPooledPixel = window.devicePixelRatio < 2 ? Math.SQRT1_2 : 1;
     return 2 ** Math.max(0, Math.ceil(Math.log2(smallestPooledPixel / this.devicePixelsPerCell())));
   }
+}
+
+function sameRange(a: BlockRange, b: BlockRange): boolean {
+  return a.minX === b.minX && a.maxX === b.maxX && a.minY === b.minY && a.maxY === b.maxY;
+}
+
+function inRange(range: BlockRange, x: number, y: number): boolean {
+  return x >= range.minX && x <= range.maxX && y >= range.minY && y <= range.maxY;
 }

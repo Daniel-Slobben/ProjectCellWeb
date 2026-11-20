@@ -33,6 +33,8 @@ export class BlockService implements OnDestroy {
   private readonly socket: Worker;
   private readonly blockData = new Map<string, ImageBitmap | undefined>();
   private generation = 0;
+  // Blocks whose picture changed since takeChanged; null when all of them may have.
+  private changed: Set<string> | null = null;
 
   public activeBlocks = new Set<string>();
   // The server is told the range of blocks in view, and works out which blocks that adds or removes.
@@ -238,6 +240,7 @@ export class BlockService implements OnDestroy {
 
       this.blockData.get(key)?.close();
       this.blockData.set(key, bitmap);
+      this.changed?.add(key);
     }
     if (this.resend.size > 0) this.schedulePublish();
   }
@@ -300,6 +303,12 @@ export class BlockService implements OnDestroy {
     this.postBatch(this.workers.map(() => ({type: 'view', view, sectors})));
   }
 
+  takeChanged(): Set<string> | null {
+    const changed = this.changed;
+    this.changed = new Set();
+    return changed;
+  }
+
   getBlock(key: string): ImageBitmap | undefined {
     return this.blockData.get(key);
   }
@@ -328,6 +337,7 @@ export class BlockService implements OnDestroy {
     // The server sends nothing for blocks that were pruned meanwhile, so their old picture would stay.
     for (const bitmap of this.blockData.values()) bitmap?.close();
     this.blockData.clear();
+    this.changed = null;
 
     this.publishedView = null;
     this.resend.clear();

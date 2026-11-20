@@ -157,3 +157,9 @@ a proxy that can kill the `/ws` socket or turn it half-open, and optionally free
 "standby" or only hides it. It prints the time from wake to the first freshly decoded bitmap, plus a
 timeline of socket opens/closes and `/gen-api` calls. `--scenarios kill,sleep3-halfopen,hidden15,...`,
 `--headed`, `--backend <port>`.
+
+## Draw calls (`bench/draw-calls.mjs`)
+
+`node bench/draw-calls.mjs` opens `draw-calls.html` in each browser and redraws a screen of 16 px blocks every frame,
+as sectors at the zoom limit are drawn: a drawImage per 40x40 bitmap, per slot of one atlas, or one image for the
+whole view. `--blocks`, `--viewport`, `--dpr` and `--variants` change it. The page also runs on its own, e.g. on a phone.
