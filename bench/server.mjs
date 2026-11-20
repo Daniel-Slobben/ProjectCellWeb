@@ -355,7 +355,7 @@ export async function startServer(options = {}) {
     for (const client of clients) {
       if (!ready(client)) continue;
       if (client.sectors) {
-        // each client on its own tick of its period: a tick per 250 blocks in view, at most 10 s
+        // like ClientService: each client on its own tick of a tick per 250 blocks in view, at most 10 s
         if (!client.view) continue;
         const {minX, maxX, minY, maxY} = client.view;
         const period = Math.min(ticksPer(10000), Math.max(1, Math.ceil((maxX - minX + 1) * (maxY - minY + 1) / 250)));
