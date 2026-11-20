@@ -38,8 +38,6 @@ export class BlockService implements OnDestroy {
   // The server is told the range of blocks in view, and works out which blocks that adds or removes.
   private view: BlockRange | null = null;
   private publishedView: BlockRange | null = null;
-  // The blocks the workers hold cells for.
-  private publishedBlocks = new Set<string>();
   // Blocks whose cells went wrong, to get their full block again.
   private readonly resend = new Set<string>();
   // Zoomed far out the client watches sectors: it gets the sectors of the blocks in view instead of cells, less often the
@@ -147,8 +145,8 @@ export class BlockService implements OnDestroy {
     this.dispatchToWorkers('rescale', visible.filter(({x, y}) => this.blockData.has(getKey(x, y))));
   }
 
-  private dispatchToWorkers(type: 'init' | 'rescale' | 'forget' | 'show' | 'hide', blocks: BlockPosition[]): void {
-    // Before the first connection there are no workers, and nothing for them to forget.
+  private dispatchToWorkers(type: 'init' | 'rescale' | 'show' | 'hide', blocks: BlockPosition[]): void {
+    // Before the first connection there are no workers.
     if (this.workers.length === 0) return;
     const perWorker: BlockPosition[][] = this.workers.map(() => []);
     for (const block of blocks) {
@@ -291,22 +289,15 @@ export class BlockService implements OnDestroy {
 
   private publishDelta(): void {
     if (!this.view) return;
-    // Watching sectors, the workers hold no cells.
-    const wanted = this.sectors ? new Set<string>() : this.activeBlocks;
-    const toRemove = [...this.publishedBlocks].filter((key) => !wanted.has(key));
-
-    const resend = [...this.resend].filter((key) => wanted.has(key));
+    const resend = this.sectors ? [] : [...this.resend].filter((key) => this.activeBlocks.has(key));
     // Back from sectors the server sends the cells of the blocks in view; their sectors show until then.
     this.publishToSocket('/client-update', JSON.stringify(new ClientUpdateRequest(this.view, this.sectors, resend)));
     this.publishedView = this.view;
-    this.publishedBlocks = new Set(wanted);
     this.publishedSectors = this.sectors;
     this.resend.clear();
+    // Workers drop the cells of blocks that left the view, so one that comes back starts over from its full block.
     const view = this.view, sectors = this.sectors;
     this.postBatch(this.workers.map(() => ({type: 'view', view, sectors})));
-
-    // Workers drop the cells of removed blocks, so one that comes back starts over from its full block.
-    if (toRemove.length > 0) this.dispatchToWorkers('forget', positions(toRemove));
   }
 
   getBlock(key: string): ImageBitmap | undefined {
@@ -339,7 +330,6 @@ export class BlockService implements OnDestroy {
     this.blockData.clear();
 
     this.publishedView = null;
-    this.publishedBlocks.clear();
     this.resend.clear();
     this.publishedSectors = false;
     this.generation++;

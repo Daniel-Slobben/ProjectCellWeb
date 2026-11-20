@@ -13,8 +13,8 @@ const encodedBlocks = new Map<string, Uint8Array>();
 const earlyBorders = new Map<string, FramedBlock[]>();
 // The share of alive cells per sector, 0-255, of the blocks in the published view that got sectors.
 const sectorBlocks = new Map<string, Uint8Array>();
-// The view the server was last sent. It sends the sectors of a block that comes into it once, so they are kept until
-// the block leaves it. Sectors of blocks outside it, still on their way from an older view, are dropped.
+// The view the server was last sent, and whether it watches sectors. Only what it asks for is kept, until the block
+// leaves it: cells or sectors still on their way for a block outside it, or cells after the switch, would stay for good.
 let publishedView: BlockRange | null = null;
 let publishedSectors = false;
 // The blocks in view: those without cells show their sectors.
@@ -65,13 +65,11 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     return;
   }
 
-  if (type === 'forget' || type === 'show') {
+  if (type === 'show') {
     for (const {x, y} of payload.data) {
       const key = getKey(x, y);
-      if (type === 'forget') forgetCells(key);
-      else visible.add(key);
-      // without sectors, a block in view that lost its cells shows nothing instead of its last cells
-      if (!await pushSectors(key, x, y, results) && type === 'forget' && visible.has(key)) results.push({x, y});
+      visible.add(key);
+      await pushSectors(key, x, y, results);
     }
     return;
   }
@@ -88,13 +86,21 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
       const [x, y] = key.split('/').map(Number);
       if (!inPublishedView(x, y)) sectorBlocks.delete(key);
     }
+    for (const key of [...encodedBlocks.keys(), ...earlyBorders.keys()]) {
+      const [x, y] = key.split('/').map(Number);
+      if (wantsCells(x, y)) continue;
+      const hadCells = encodedBlocks.has(key);
+      forgetCells(key);
+      // without sectors, a block in view that lost its cells shows nothing instead of its last cells
+      if (hadCells && visible.has(key) && !await pushSectors(key, x, y, results)) results.push({x, y});
+    }
     return;
   }
 
   for (const block of readBlockFrame(new Uint8Array(payload.frame))) {
     const key = getKey(block.x, block.y);
-    // cells still on their way from before the switch to sectors would hide the block's sectors
-    if (publishedSectors && block.type !== SECTOR) continue;
+    const wanted = block.type === SECTOR ? inPublishedView(block.x, block.y) : wantsCells(block.x, block.y);
+    if (!wanted) continue;
 
     if (block.type === FULL) {
       encodedBlocks.set(key, decodeFull(block.cells));
@@ -129,7 +135,6 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
         console.error(e);
       }
     } else if (block.type === SECTOR) {
-      if (!inPublishedView(block.x, block.y)) continue;
       sectorBlocks.set(key, zstd.decode(block.cells));
       await pushSectors(key, block.x, block.y, results);
     } else {
@@ -148,6 +153,10 @@ async function pushSectors(key: string, x: number, y: number, results: any[]): P
 
 function inPublishedView(x: number, y: number): boolean {
   return publishedView !== null && x >= publishedView.minX && x <= publishedView.maxX && y >= publishedView.minY && y <= publishedView.maxY;
+}
+
+function wantsCells(x: number, y: number): boolean {
+  return !publishedSectors && inPublishedView(x, y);
 }
 
 function forgetCells(key: string): void {
