@@ -82,7 +82,7 @@ Frames carry `content-length` the way Spring's encoder writes them. As with the 
 `/client-update` is answered right away by one MESSAGE per added block, holding its FULL, and
 every tick (`--tick`, default 250 ms) sends each client one MESSAGE with a BORDER for every block it
 already has (empty if it has none). A client that asks for `sectors` gets SECTORs for the blocks in view
-instead: on a `/client-update`, and per tile of 16×16 blocks once every tick per 250 blocks in view, at least every 10 s. Block messages are binary frames (`application/octet-stream`) in
+instead, in messages of 250 blocks: on a `/client-update`, and once every tick per 250 blocks in view, at least every 10 s. Block messages are binary frames (`application/octet-stream`) in
 the layout documented in `src/app/features/world-of-cells/grid-view/block-frame.ts`. Every block exists, so there is
 no NO_BLOCKS, and there are no heartbeats; the settings response carries no blocks, with `targetSpeed` set to `--tick`.
 

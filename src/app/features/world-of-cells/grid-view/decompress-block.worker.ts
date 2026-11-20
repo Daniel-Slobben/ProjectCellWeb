@@ -14,7 +14,7 @@ const earlyBorders = new Map<string, FramedBlock[]>();
 // The share of alive cells per sector, 0-255, of the blocks in the published view that got sectors.
 const sectorBlocks = new Map<string, Uint8Array>();
 // The view the server was last sent. It sends the sectors of a block that comes into it once, so they are kept until
-// the block leaves it. Sectors of blocks outside it, which come with a tile, are dropped.
+// the block leaves it. Sectors of blocks outside it, still on their way from an older view, are dropped.
 let publishedView: BlockRange | null = null;
 // The blocks in view: those without cells show their sectors.
 const visible = new Set<string>();
