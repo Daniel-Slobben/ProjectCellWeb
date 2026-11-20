@@ -302,7 +302,8 @@ export class BlockService implements OnDestroy {
     this.publishedBlocks = new Set(wanted);
     this.publishedSectors = this.sectors;
     this.resend.clear();
-    this.postBatch(this.workers.map(() => ({type: 'view', view: this.view!})));
+    const view = this.view;
+    this.postBatch(this.workers.map(() => ({type: 'view', view})));
 
     // Workers drop the cells of removed blocks, so one that comes back starts over from its full block.
     if (toRemove.length > 0) this.dispatchToWorkers('forget', positions(toRemove));
