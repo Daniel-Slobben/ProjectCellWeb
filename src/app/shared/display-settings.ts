@@ -1,4 +1,4 @@
-import {effect, Injectable, signal} from '@angular/core';
+import {computed, effect, Injectable, signal} from '@angular/core';
 
 export interface Theme {
   name: string;
@@ -35,28 +35,23 @@ function isDark(alive: string, dead: string): boolean {
   return brightness(dead) < brightness(alive);
 }
 
-/** The gamma a theme starts at, lower on dark themes than on light ones. */
-function defaultGamma(theme: Theme): number {
-  return isDark(theme.alive, theme.dead) ? 0.3 : 0.6;
-}
-
 /** How the grid is drawn, set in the Settings menu and kept in the browser between visits. */
 @Injectable({providedIn: 'root'})
 export class DisplaySettings {
   readonly borders = signal(false);
   readonly smoothing = signal(true);
+  readonly coordinates = signal(true);
+  readonly scale = signal(true);
   readonly alive = signal(THEMES[1].alive);
   readonly dead = signal(THEMES[1].dead);
-  // Zoomed out, how far a patch's share of alive cells moves it towards the alive colour: lower shows sparse life more.
-  readonly gamma = signal(defaultGamma(THEMES[1]));
-  // For now, until a default is found: once a sector of 50 by 50 cells is this many CSS pixels or smaller, blocks are
-  // drawn per sector. 1 is about 200 blocks in view on a phone; a 4K screen never zooms out that far. Not saved.
-  readonly sectorPixels = signal(1);
+  // Zoomed out, how far a patch's share of alive cells moves it towards the alive colour: lower shows sparse life more,
+  // which dark themes need.
+  readonly gamma = computed(() => isDark(this.alive(), this.dead()) ? 0.3 : 0.6);
 
   constructor() {
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
-      for (const name of ['borders', 'smoothing', 'alive', 'dead', 'gamma'] as const) {
+      for (const name of ['borders', 'smoothing', 'coordinates', 'scale', 'alive', 'dead'] as const) {
         if (saved[name] !== undefined) (this[name] as any).set(saved[name]);
       }
     } catch {
@@ -69,8 +64,8 @@ export class DisplaySettings {
       root.setProperty('--dead', this.dead());
 
       const settings = {
-        borders: this.borders(), smoothing: this.smoothing(),
-        alive: this.alive(), dead: this.dead(), gamma: this.gamma(),
+        borders: this.borders(), smoothing: this.smoothing(), coordinates: this.coordinates(), scale: this.scale(),
+        alive: this.alive(), dead: this.dead(),
       };
       try {
         localStorage.setItem(storageKey, JSON.stringify(settings));
@@ -83,6 +78,5 @@ export class DisplaySettings {
   applyTheme(theme: Theme): void {
     this.alive.set(theme.alive);
     this.dead.set(theme.dead);
-    this.gamma.set(defaultGamma(theme));
   }
 }

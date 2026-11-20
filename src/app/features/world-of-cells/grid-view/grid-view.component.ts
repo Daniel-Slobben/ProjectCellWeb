@@ -32,7 +32,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   protected blockSize: number = 500;
   // The backend's sectors, in cells.
   private readonly sectorSize = 50;
-  private readonly maxCellBlocks = 250;
+  private readonly maxCellBlocks = 350;
   private viewport!: Viewport;
 
   // Visited views; Previous and Next step through them and fetch a new viewport past either end.
@@ -40,6 +40,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private viewIndex = 0;
   private recentViewports: Coordinates[] = [];
   private ctx!: CanvasRenderingContext2D;
+  private pixelRatioQuery?: MediaQueryList;
 
   private drawnGeneration = 0;
   private drawnVersion = 0;
@@ -61,8 +62,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
               private readonly viewCenter: ViewCenter, protected readonly settings: DisplaySettings) {
     // A changed setting shows at once, not on the next tick.
     effect(() => {
-      const {borders, smoothing, alive, dead, gamma, sectorPixels} = this.settings;
-      borders(); smoothing(); alive(); dead(); gamma(); sectorPixels();
+      const {borders, smoothing, alive, dead, gamma} = this.settings;
+      borders(); smoothing(); alive(); dead(); gamma();
       this.drawnGeneration = -1;
     });
   }
@@ -170,6 +171,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.noBlocksSubscription?.unsubscribe();
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('resize', this.resizeCanvas);
+    this.pixelRatioQuery?.removeEventListener('change', this.resizeCanvas);
   }
 
   private readonly resizeCanvas = () => {
@@ -177,16 +179,20 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const height = window.innerHeight - 30;
     this.viewport.resize(width, height);
 
-    const ratio = Math.ceil(window.devicePixelRatio);
+    const ratio = window.devicePixelRatio;
     const canvas = this.ctx.canvas;
-    canvas.width = width * ratio;
-    canvas.height = height * ratio;
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     // Resizing resets the context and clears the canvas.
     this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     this.ctx.imageSmoothingQuality = 'high';
     this.drawnGeneration = -1;
+    // Moving to a screen with another pixel ratio fires no resize.
+    this.pixelRatioQuery?.removeEventListener('change', this.resizeCanvas);
+    this.pixelRatioQuery = matchMedia(`(resolution: ${ratio}dppx)`);
+    this.pixelRatioQuery.addEventListener('change', this.resizeCanvas);
   };
 
   private startRenderLoop() {
@@ -218,6 +224,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     this.viewCenter.x.set(centerCellX);
     this.viewCenter.y.set(centerCellY);
+    this.viewCenter.cellSize.set(cellSize);
 
     const startBlockX = Math.floor(cellOffsetX / this.blockSize);
     const startBlockY = Math.floor(cellOffsetY / this.blockSize);
@@ -239,10 +246,11 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
       }
     }
     // Sectors once they are small on screen. CSS pixels are about the same size on a phone and a monitor, so a sector
-    // at 1 px is as fine on either. A big screen switches earlier, once the view holds 250 blocks: that many full blocks
-    // is as much as a phone gets. Back to cells a bit above that, so zooming around it does not switch back and forth.
+    // at 1 px is as fine on either. A big screen switches earlier, once the view holds 350 blocks: with the ring that
+    // stays under the backend's max-cell-blocks of 600. Back to cells a bit above that, so zooming around it does not
+    // switch back and forth.
     const budgetPixels = Math.sqrt(width * height / this.maxCellBlocks) * this.sectorSize / this.blockSize;
-    const sectorPixels = cellSize * this.sectorSize, switchPixels = Math.max(this.settings.sectorPixels(), budgetPixels);
+    const sectorPixels = cellSize * this.sectorSize, switchPixels = Math.max(1, budgetPixels);
     if (sectorPixels <= switchPixels) this.blockService.setSectors(true);
     else if (sectorPixels > 1.1 * switchPixels) this.blockService.setSectors(false);
     this.blockService.updateVisible({
@@ -269,10 +277,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const blockPixelSize = this.blockSize * cellSize;
 
     // Between 1 and 2 device pixels per cell, nearest-neighbour makes cells 1 or 2 pixels wide, which
-    // turns fine patterns into bands. Below 1 the bitmap is pooled to 1-2 pixels per pooled cell. Sectors stay sharp.
+    // turns fine patterns into bands. Further out the bitmap is pooled. Sectors stay sharp.
     this.ctx.imageSmoothingEnabled = this.settings.smoothing() && this.devicePixelsPerCell() < 2 && !this.blockService.sectors;
     // Edges on whole device pixels: a pixel shared by two blocks would be blended twice and show as a light line.
-    const ratio = Math.ceil(window.devicePixelRatio);
+    const ratio = window.devicePixelRatio;
     const snap = (v: number) => Math.round(v * ratio) / ratio;
     const left = snap(blockCanvasX), top = snap(blockCanvasY);
     const width = snap(blockCanvasX + blockPixelSize) - left, height = snap(blockCanvasY + blockPixelSize) - top;
@@ -289,15 +297,13 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   // In physical pixels, matching the ratio the canvas is scaled by.
   private devicePixelsPerCell(): number {
-    return this.viewport.cellSize * Math.ceil(window.devicePixelRatio);
+    return this.viewport.cellSize * window.devicePixelRatio;
   }
 
+  // Each pooled pixel covers 1–2 device pixels, so fine patterns average to grey instead of moiré. A 1x screen's pixels
+  // are big enough that 2 shows as blur, so there it covers 0.7–1.4.
   private poolFactorForZoom(): number {
-    const devicePixelsPerCell = this.devicePixelsPerCell();
-    if (devicePixelsPerCell >= 1) {
-      return 1;
-    }
-    // Never shrink a bitmap: each pooled pixel covers 1–2 device pixels, so fine patterns average to grey instead of moiré.
-    return Math.pow(2, Math.ceil(Math.log2(1 / devicePixelsPerCell)));
+    const smallestPooledPixel = window.devicePixelRatio < 2 ? Math.SQRT1_2 : 1;
+    return 2 ** Math.max(0, Math.ceil(Math.log2(smallestPooledPixel / this.devicePixelsPerCell())));
   }
 }

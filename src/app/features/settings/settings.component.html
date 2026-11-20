@@ -1,24 +1,20 @@
 <div class="section">Display</div>
 <button class="w3-button row" (click)="settings.borders.set(!settings.borders())"
         [attr.aria-pressed]="settings.borders()">
-  <span class="box" [class.on]="settings.borders()"></span> Borders
+  <span class="box" [class.on]="settings.borders()"></span> Show blocks
 </button>
 <button class="w3-button row" (click)="settings.smoothing.set(!settings.smoothing())"
         [attr.aria-pressed]="settings.smoothing()">
   <span class="box" [class.on]="settings.smoothing()"></span> Smoothing
 </button>
-<label class="row" title="Zoomed out: lower shows sparse life more">
-  Gamma
-  <input type="range" min="0.2" max="2" step="0.1"
-         [value]="settings.gamma()" (input)="settings.gamma.set(+$any($event.target).value)">
-  <span class="value">{{ settings.gamma().toFixed(1) }}</span>
-</label>
-<label class="row" title="Once a sector of 50 by 50 cells is this many pixels or smaller, blocks are drawn per sector">
-  Sectors
-  <input type="range" min="0.25" max="4" step="0.25"
-         [value]="settings.sectorPixels()" (input)="settings.sectorPixels.set(+$any($event.target).value)">
-  <span class="value">{{ settings.sectorPixels() }} px</span>
-</label>
+<button class="w3-button row" (click)="settings.coordinates.set(!settings.coordinates())"
+        [attr.aria-pressed]="settings.coordinates()">
+  <span class="box" [class.on]="settings.coordinates()"></span> Show coordinates
+</button>
+<button class="w3-button row" (click)="settings.scale.set(!settings.scale())"
+        [attr.aria-pressed]="settings.scale()">
+  <span class="box" [class.on]="settings.scale()"></span> Show scale
+</button>
 
 <div class="section">Theme</div>
 <div class="themes">
