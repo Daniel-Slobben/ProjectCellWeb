@@ -158,16 +158,16 @@ export class BlockService implements OnDestroy {
     this.postBatch(perWorker.map((data) => ({type, data})));
   }
 
-  private postBatch(messages: ({type: string, data?: BlockPosition[], frame?: ArrayBuffer} | null)[]): void {
+  private postBatch(messages: ({type: string, data?: BlockPosition[], frame?: ArrayBuffer, view?: BlockRange} | null)[]): void {
     const batchId = ++this.lastBatchId;
     const batch: PendingBatch = {id: batchId, pending: 0, results: []};
 
     messages.forEach((message, i) => {
       if (!message) return;
       batch.pending++;
-      const {type, data, frame} = message;
+      const {type, data, frame, view} = message;
       this.workers[i].postMessage(
-        {type, batchId, payload: {blockSize: this.blockSize, ...this.rendering, data, frame}},
+        {type, batchId, payload: {blockSize: this.blockSize, ...this.rendering, data, frame, view}},
         frame ? [frame] : [],
       );
     });
@@ -302,6 +302,7 @@ export class BlockService implements OnDestroy {
     this.publishedBlocks = new Set(wanted);
     this.publishedSectors = this.sectors;
     this.resend.clear();
+    this.postBatch(this.workers.map(() => ({type: 'view', view: this.view!})));
 
     // Workers drop the cells of removed blocks, so one that comes back starts over from its full block.
     if (toRemove.length > 0) this.dispatchToWorkers('forget', positions(toRemove));

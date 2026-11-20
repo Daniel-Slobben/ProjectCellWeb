@@ -1,6 +1,7 @@
 import {ZSTDDecoder} from 'zstddec';
 import {getKey} from './utils.component';
 import {BORDER, FramedBlock, FULL, readBlockFrame, readStrips, SECTOR} from './block-frame';
+import type {BlockRange} from '../../../requests/outgoing/ClientUpdateRequest';
 
 let blockSize: number;
 
@@ -10,10 +11,12 @@ let densityGamma = 0.6;
 const blockGenerationMap = new Map<string, number>();
 const encodedBlocks = new Map<string, Uint8Array>();
 const earlyBorders = new Map<string, FramedBlock[]>();
-// The share of alive cells per sector, 0-255, of the blocks in view that got sectors.
+// The share of alive cells per sector, 0-255, of the blocks in the published view that got sectors.
 const sectorBlocks = new Map<string, Uint8Array>();
-// The blocks in view: those without cells show their sectors. Sectors of blocks out of view, which come with a tile of
-// blocks in view, are dropped.
+// The view the server was last sent. It sends the sectors of a block that comes into it once, so they are kept until
+// the block leaves it. Sectors of blocks outside it, which come with a tile, are dropped.
+let publishedView: BlockRange | null = null;
+// The blocks in view: those without cells show their sectors.
 const visible = new Set<string>();
 // a safety cap, about 25 seconds of ticks
 const maxEarlyBorders = 50;
@@ -73,9 +76,15 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
   }
 
   if (type === 'hide') {
-    for (const {x, y} of payload.data) {
-      visible.delete(getKey(x, y));
-      sectorBlocks.delete(getKey(x, y));
+    for (const {x, y} of payload.data) visible.delete(getKey(x, y));
+    return;
+  }
+
+  if (type === 'view') {
+    publishedView = payload.view;
+    for (const key of sectorBlocks.keys()) {
+      const [x, y] = key.split('/').map(Number);
+      if (!inPublishedView(x, y)) sectorBlocks.delete(key);
     }
     return;
   }
@@ -86,6 +95,8 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     if (block.type === FULL) {
       encodedBlocks.set(key, decodeFull(block.cells));
       blockGenerationMap.set(key, block.generation);
+      // older than the cells, and the server sends none for a block that is pruned meanwhile
+      sectorBlocks.delete(key);
       for (const border of takeEarlyBorders(key, block.generation)) {
         stepWithBorder(key, border);
       }
@@ -114,7 +125,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
         console.error(e);
       }
     } else if (block.type === SECTOR) {
-      if (!visible.has(key)) continue;
+      if (!inPublishedView(block.x, block.y)) continue;
       sectorBlocks.set(key, zstd.decode(block.cells));
       await pushSectors(key, block.x, block.y, results);
     } else {
@@ -129,6 +140,10 @@ async function pushSectors(key: string, x: number, y: number, results: any[]): P
   if (!sectors || !visible.has(key) || encodedBlocks.has(key)) return false;
   results.push({bitmap: await toBitmap(sectorImageData(sectors)), x, y});
   return true;
+}
+
+function inPublishedView(x: number, y: number): boolean {
+  return publishedView !== null && x >= publishedView.minX && x <= publishedView.maxX && y >= publishedView.minY && y <= publishedView.maxY;
 }
 
 function forgetCells(key: string): void {
