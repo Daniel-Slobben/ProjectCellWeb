@@ -8,7 +8,7 @@
     }
     @if (settings.scale()) {
       <span class="scale" [title]="scale().title">
-        <span class="scale-bar" [style.--pixels]="scale().pixels + 'px'" [style.--segments]="scale().segments"></span>
+        <span class="scale-bar"></span>
         {{ scale().label }}
       </span>
     }

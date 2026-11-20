@@ -3,15 +3,15 @@
   font-size: min(1em, calc((100vw - 120px) / var(--coordinates-em)));
 }
 
-.centered-nav:has(.scale) .coordinates { font-size: min(1em, calc((100vw - 280px) / var(--coordinates-em))); }
+.centered-nav:has(.scale) .coordinates { font-size: min(1em, calc((100vw - 296px) / var(--coordinates-em))); }
 
-/* A ruler of alternating cells, as long as its label at the current zoom, in a slot that fits the longest. */
+/* A ruler of a fixed length, with the cells across it at the current zoom beside it. */
 .scale {
   --slot: 64px;
   display: flex;
   align-items: center;
   gap: 6px;
-  width: calc(var(--slot) + 6px + 8ch + 16px);
+  width: calc(var(--slot) + 6px + 10ch + 16px);
   padding: 0 8px;
   font-size: 12px;
   white-space: nowrap;
@@ -19,19 +19,16 @@
 
 .scale-bar {
   flex: none;
-  width: var(--pixels);
-  /* The label stays put, after the longest ruler. */
-  margin-right: calc(var(--slot) - var(--pixels));
+  width: var(--slot);
   height: 12px;
   box-shadow: inset 0 0 0 2px currentColor;
-  background: repeating-linear-gradient(to right,
-    currentColor 0 calc(100% / var(--segments)), transparent 0 calc(200% / var(--segments)));
+  background: repeating-linear-gradient(to right, currentColor 0 25%, transparent 0 50%);
 }
 
 /* With a mouse, on a desktop screen. */
 @media (hover: hover) {
-  .centered-nav:has(.scale) .coordinates { font-size: min(1em, calc((100vw - 424px) / var(--coordinates-em))); }
-  .scale { --slot: 160px; gap: 8px; width: calc(var(--slot) + 8px + 9ch + 32px); padding: 0 16px; font-size: 1em; }
+  .centered-nav:has(.scale) .coordinates { font-size: min(1em, calc((100vw - 432px) / var(--coordinates-em))); }
+  .scale { --slot: 160px; gap: 8px; width: calc(var(--slot) + 8px + 10ch + 32px); padding: 0 16px; font-size: 1em; }
   .scale-bar { height: 16px; }
 }
 

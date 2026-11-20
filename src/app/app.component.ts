@@ -5,7 +5,7 @@ import {GearIconComponent} from './shared/icons/gear-icon.component';
 import {ViewCenter} from './shared/view-center';
 import {DisplaySettings} from './shared/display-settings';
 
-const compact = new Intl.NumberFormat('en', {notation: 'compact'});
+const compact = new Intl.NumberFormat('en', {notation: 'compact', maximumSignificantDigits: 2});
 
 @Component({
   standalone: true,
@@ -21,16 +21,11 @@ export class AppComponent {
   protected readonly coordinatesEm = computed(() =>
     4 + 0.75 * (String(this.viewCenter.x()).length + String(this.viewCenter.y()).length));
   // The ruler's --slot in the CSS: wider with a mouse, on a desktop screen.
-  private readonly maxScalePixels = matchMedia('(hover: hover)').matches ? 160 : 64;
-  // The longest ruler of 1, 2 or 5 times a power of ten cells that fits its slot, cut into whole cells when it is
-  // only a few, else into 4 or 5 parts.
+  private readonly scalePixels = matchMedia('(hover: hover)').matches ? 160 : 64;
+  // The cells across the ruler at the current zoom.
   protected readonly scale = computed(() => {
-    const cellSize = this.viewCenter.cellSize(), maxPixels = this.maxScalePixels;
-    const power = 10 ** Math.floor(Math.log10(maxPixels / cellSize));
-    const cells = [10, 5, 2, 1].map((d) => d * power).find((c) => c * cellSize <= maxPixels) ?? 1;
-    const segments = cells < 10 ? cells : String(cells)[0] === '2' ? 4 : 5;
-    return {pixels: Math.round(cells * cellSize), segments, label: `${compact.format(cells)} cells`,
-      title: `${cells.toLocaleString('en')} cells`};
+    const cells = this.scalePixels / this.viewCenter.cellSize();
+    return {label: `${compact.format(cells)} cells`, title: `${Math.round(cells).toLocaleString('en')} cells`};
   });
 
   protected onKeyDown(e: KeyboardEvent) {
