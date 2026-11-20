@@ -16,7 +16,6 @@ const sectorBlocks = new Map<string, Uint8Array>();
 // The view the server was last sent. It sends the sectors of a block that comes into it once, so they are kept until
 // the block leaves it. Sectors of blocks outside it, still on their way from an older view, are dropped.
 let publishedView: BlockRange | null = null;
-let publishedSectors = false;
 // The blocks in view: those without cells show their sectors.
 const visible = new Set<string>();
 // a safety cap, about 25 seconds of ticks
@@ -83,7 +82,6 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
 
   if (type === 'view') {
     publishedView = payload.view;
-    publishedSectors = payload.sectors;
     for (const key of sectorBlocks.keys()) {
       const [x, y] = key.split('/').map(Number);
       if (!inPublishedView(x, y)) sectorBlocks.delete(key);
@@ -93,8 +91,6 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
 
   for (const block of readBlockFrame(new Uint8Array(payload.frame))) {
     const key = getKey(block.x, block.y);
-    // cells still on their way from before the switch to sectors would hide the block's sectors
-    if (publishedSectors && block.type !== SECTOR) continue;
 
     if (block.type === FULL) {
       encodedBlocks.set(key, decodeFull(block.cells));
