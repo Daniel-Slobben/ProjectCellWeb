@@ -2,6 +2,10 @@
 //
 //   node bench/server.mjs [--port 4300] [--tick 250] [--dist <build>/browser]
 //                         [--pattern recorded|noise|lines] [--recording bench/recordings/world.bin] [--block-size 2000] [--density 0.1667]
+//                         [--mbps 9]
+//
+// --mbps sends to each client at that many megabits per second, like a throttled link, so blocks are still on their
+// way while the view moves on. 0, the default, sends at once.
 //
 // --dist serves another build of the app, e.g. one made with `npx ng build --output-path /tmp/variant`,
 // so two versions of the drawing code can be compared against the same mock.
@@ -51,7 +55,7 @@ export function parseArgs(argv, defaults) {
 }
 
 export const serverDefaults = {port: 4300, tick: 250, blockSize: 2000, density: 1 / 6, dist: '', quiet: false, pattern: 'recorded',
-  recording: path.join(benchDir, 'recordings/world.bin')};
+  recording: path.join(benchDir, 'recordings/world.bin'), mbps: 0};
 
 // --- payloads: zstd frames at level 3 like the backend's, FULL as runs of strips (readStrips in block-frame.ts) ---
 
@@ -156,11 +160,13 @@ function encodeFrame(opcode, payload) {
 }
 
 class WsConnection {
-  constructor(socket, onText, onClose) {
+  constructor(socket, onText, onClose, bytesPerMs) {
     this.socket = socket;
     this.buffer = Buffer.alloc(0);
     this.fragments = [];
     this.closed = false;
+    this.bytesPerMs = bytesPerMs;
+    this.outbox = [];
     socket.on('data', (chunk) => {
       this.buffer = Buffer.concat([this.buffer, chunk]);
       this.drain(onText);
@@ -203,7 +209,26 @@ class WsConnection {
 
   send(opcode, payload) {
     if (this.closed || this.socket.destroyed) return;
-    for (const part of encodeFrame(opcode, payload)) this.socket.write(part);
+    const parts = encodeFrame(opcode, payload);
+    if (!this.bytesPerMs) {
+      for (const part of parts) this.socket.write(part);
+      return;
+    }
+    this.outbox.push(parts);
+    if (this.outbox.length === 1) this.drainOutbox();
+  }
+
+  drainOutbox() {
+    const parts = this.outbox[0];
+    if (!parts || this.socket.destroyed || this.socket.writableEnded) {
+      this.outbox = [];
+      return;
+    }
+    for (const part of parts) this.socket.write(part);
+    setTimeout(() => {
+      this.outbox.shift();
+      this.drainOutbox();
+    }, (parts[0].length + parts[1].length) / this.bytesPerMs);
   }
 
   sendText(text) { this.send(0x1, Buffer.from(text, 'utf8')); }
@@ -426,7 +451,7 @@ export async function startServer(options = {}) {
     }
     if (p === '/__bench/info') {
       return sendJson(res, 200, {blockSize, tickMs: opts.tick, pattern: recording ? `recorded ${recording.recordedAt}` : opts.pattern,
-        density: recording ? null : opts.density, home,
+        density: recording ? null : opts.density, mbps: opts.mbps, home,
         dist: path.relative(projectDir, distDir) || '.', ...gitInfo()});
     }
     if (p === '/__bench/results' && req.method === 'POST') {
@@ -483,13 +508,13 @@ export async function startServer(options = {}) {
     socket.write(['HTTP/1.1 101 Switching Protocols', 'Upgrade: websocket', 'Connection: Upgrade',
       `Sec-WebSocket-Accept: ${accept}`, ...(protocol ? [`Sec-WebSocket-Protocol: ${protocol}`] : []), '', ''].join('\r\n'));
     const client = {id: ++connectionCount, keys: new Set(), sent: new Map(), view: null, sectors: false, connection: null, subscription: null, messageId: 0};
-    client.connection = new WsConnection(socket, onStomp(client), () => clients.delete(client));
+    client.connection = new WsConnection(socket, onStomp(client), () => clients.delete(client), opts.mbps * 125);
     clients.add(client);
   });
 
   await new Promise((resolve) => server.listen(opts.port, resolve));
   const port = server.address().port;
-  log(`CellWeb + mock backend + bench at http://localhost:${port}/ (tick ${opts.tick} ms)`);
+  log(`CellWeb + mock backend + bench at http://localhost:${port}/ (tick ${opts.tick} ms${opts.mbps ? `, ${opts.mbps} Mbit/s per client` : ''})`);
   return {
     port,
     url: `http://localhost:${port}/`,

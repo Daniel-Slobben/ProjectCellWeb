@@ -49,8 +49,12 @@ The default set has five scenarios, about 10 s each including setup:
 | pan-pf1-edge | 0.42 device px per cell, just above the pooling threshold: the largest bitmaps per redraw |
 
 `--scenarios all`, or the panel, adds the extras: idle-min, pan-min-slow, fling-min, zoom-sweep,
-zoom-pan-min, pinch-min (Chromium only), idle-pf1-edge and pan-close. Run any subset with
+zoom-pan-min, pinch-min (Chromium only), idle-pf1-edge, pan-close and sectors-after-pan. Run any subset with
 `--scenarios a,b`.
+
+sectors-after-pan is a check rather than a timing: it zooms out to 0.06 and drags 600 px while the full blocks are
+still on their way, waits 5 s, zooms out into sectors and rests 12 s, longer than the sector period. Its `end`
+should be 1.00. It needs a slow link to catch anything: `--scenarios sectors-after-pan --mbps 9`.
 
 The setup for each scenario zooms with wheel events to the target, waits until blocks cover the
 screen, and then measures for `--duration` ms. `minCellSize` is wherever the wheel stops having an effect.
@@ -67,6 +71,7 @@ screen, and then measures for `--duration` ms. `minCellSize` is wherever the whe
 | newMpx/s | megapixels per second of bitmaps drawn for the first time, which is what the canvas has to upload or import |
 | liveMB | peak bytes of ImageBitmaps held at once |
 | cover | lowest fraction of the canvas covered by blocks in any redraw (white gaps while blocks load) |
+| end | fraction of the canvas covered by blocks in the last redraw |
 | wsMs, commit | total main-thread ms in the STOMP handler and in worker replies (`commitBatch`) |
 | tick95, in95 | p95 ms from a socket message to the first draw of its bitmaps, and from an input event to the next redraw |
 | LoAF | blocking ms from Long Animation Frames (Chromium only). The JSON has the top scripts per scenario |
@@ -85,6 +90,7 @@ already has (empty if it has none). A client that asks for `sectors` gets SECTOR
 instead, in messages of 250 blocks: on a `/client-update`, and once every tick per 250 blocks in view, at least every 10 s. Block messages are binary frames (`application/octet-stream`) in
 the layout documented in `src/app/features/world-of-cells/grid-view/block-frame.ts`. Every block exists, so there is
 no NO_BLOCKS, and there are no heartbeats; the settings response carries no blocks, with `targetSpeed` set to `--tick`.
+`--mbps` sends to each client at that many megabits per second, like a throttled link; 0, the default, sends at once.
 
 The cells come from `recordings/world.bin`, a minute of world-of-cells.net recorded by `record.mjs`: 12×8
 blocks around the viewport `/gen-api/settings` handed out, of which 61 existed, with each block's FULL and the 120

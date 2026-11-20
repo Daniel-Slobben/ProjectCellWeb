@@ -3,6 +3,7 @@
 //   node bench/run.mjs [--browsers chrome,firefox,webkit] [--scenarios all|pan-min-fast,zoom-rapid,...]
 //                      [--duration 4000] [--label baseline] [--compare latest|<runId>] [--headless]
 //                      [--viewport 1728x1117] [--dpr 2] [--tick 250] [--dist path/to/build/browser] [--pattern recorded|noise]
+//                      [--mbps 9]
 //
 // Browsers open as windows by default, one per browser, and the scenarios load one after another in it. On macOS
 // the app that was in front gets the focus back once the window is open. Results are written to
@@ -20,7 +21,7 @@ const resultsDir = path.join(benchDir, 'results');
 
 const opts = parseArgs(process.argv.slice(2), {
   browsers: 'chrome', scenarios: 'default', duration: 4000, label: '', compare: '', headless: false, dist: '',
-  viewport: '1728x1117', dpr: 2, tick: 250, blockSize: 2000, density: 1 / 6, port: 0, pattern: 'recorded',
+  viewport: '1728x1117', dpr: 2, tick: 250, blockSize: 2000, density: 1 / 6, port: 0, pattern: 'recorded', mbps: 0,
 });
 const [width, height] = opts.viewport.split('x').map(Number);
 
@@ -50,6 +51,7 @@ const columns = [
   ['newMpx/s', 'draw.newMpxPerSec', 0, true],
   ['liveMB', 'workers.liveBitmapMBPeak', 0, true],
   ['cover', 'coverage.min', 2, false],
+  ['end', 'coverage.end', 2, false],
   ['wsMs', 'main.wsHandlerTotalMs', 0, true],
   ['sockW', 'main.socketWorkerTotalMs', 0, true],
   ['commit', 'main.workerReplyTotalMs', 0, true],
@@ -116,9 +118,9 @@ function findBaseline(browser, excludeRunId) {
 }
 
 const server = await startServer({port: opts.port, tick: opts.tick, blockSize: opts.blockSize, density: opts.density, dist: opts.dist,
-  pattern: opts.pattern, quiet: true});
+  pattern: opts.pattern, mbps: opts.mbps, quiet: true});
 const info = await (await fetch(`${server.url}__bench/info`)).json();
-console.log(`commit ${info.commit}${info.dirty.length ? ' + uncommitted: ' + info.dirty.join(', ') : ''}; ${info.pattern}, blockSize ${info.blockSize}, tick ${info.tickMs} ms, ` +
+console.log(`commit ${info.commit}${info.dirty.length ? ' + uncommitted: ' + info.dirty.join(', ') : ''}; ${info.pattern}, blockSize ${info.blockSize}, tick ${info.tickMs} ms, ${info.mbps ? `${info.mbps} Mbit/s, ` : ''}` +
   `viewport ${width}x${height} @${opts.dpr}x, ${opts.duration / 1000} s per scenario`);
 
 let exitCode = 0;
@@ -144,7 +146,7 @@ try {
     const startedAt = new Date().toISOString();
     const runId = `${startedAt.slice(0, 19).replace(/[:T]/g, '-')}-${browserName}${opts.label ? '-' + opts.label : ''}`;
     const run = {runId, meta: {runId, label: opts.label, browser: browserName, version: browser.version(), startedAt, commit: info.commit,
-      dirty: info.dirty, durationMs: opts.duration, tickMs: info.tickMs, blockSize: info.blockSize, pattern: info.pattern, density: info.density,
+      dirty: info.dirty, durationMs: opts.duration, tickMs: info.tickMs, blockSize: info.blockSize, pattern: info.pattern, density: info.density, mbps: info.mbps,
       viewport: [width, height], dpr: opts.dpr, headless: opts.headless, dist: info.dist}, results: []};
     console.log(`\n${browserName} ${browser.version()} -> bench/results/${runId}.json`);
 
@@ -177,7 +179,7 @@ try {
   }
   console.log(`\ncolumns: fps, frame p95/max ms, dropped frames (> 1.5 refresh), frames > 50 ms, ms in the app's frame callback when it drew (p95),
   of which in canvas calls (p95),
-  bitmap Mpx per redraw, Mpx/s of bitmaps drawn for the first time, peak MB of live bitmaps, min screen coverage,
+  bitmap Mpx per redraw, Mpx/s of bitmaps drawn for the first time, peak MB of live bitmaps, min and end screen coverage,
   main-thread ms handling socket messages, ms in the socket worker's handler (off the main thread), ms in worker replies, tick->draw p95 ms, input->draw p95 ms, Long Animation Frame blocking ms (Chromium).
   ws/drw/oth split the >50 ms frames by cause: STOMP handler, the app's frame callback (drawing), or no main-thread work (GPU, GC).
   * = blocks never fully covered the screen before measuring. Open ${server.url}?bench=ui for the same table in the browser.`);
