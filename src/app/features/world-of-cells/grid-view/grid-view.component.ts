@@ -2,6 +2,7 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  effect,
   ElementRef,
   OnDestroy,
   ViewChild
@@ -58,6 +59,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   constructor(private readonly httpClient: HttpClient, private readonly blockService: BlockService,
               private readonly viewCenter: ViewCenter, protected readonly settings: DisplaySettings) {
+    // A changed setting shows at once, not on the next tick.
+    effect(() => {
+      const {borders, smoothing, alive, dead, gamma, sectorPixels} = this.settings;
+      borders(); smoothing(); alive(); dead(); gamma(); sectorPixels();
+      this.drawnGeneration = -1;
+    });
   }
 
   ngAfterViewInit() {
