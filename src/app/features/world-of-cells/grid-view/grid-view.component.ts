@@ -40,6 +40,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   private viewIndex = 0;
   private recentViewports: Coordinates[] = [];
   private ctx!: CanvasRenderingContext2D;
+  private pixelRatioQuery?: MediaQueryList;
 
   private drawnGeneration = 0;
   private drawnVersion = 0;
@@ -170,6 +171,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.noBlocksSubscription?.unsubscribe();
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('resize', this.resizeCanvas);
+    this.pixelRatioQuery?.removeEventListener('change', this.resizeCanvas);
   }
 
   private readonly resizeCanvas = () => {
@@ -177,16 +179,20 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const height = window.innerHeight - 30;
     this.viewport.resize(width, height);
 
-    const ratio = Math.ceil(window.devicePixelRatio);
+    const ratio = window.devicePixelRatio;
     const canvas = this.ctx.canvas;
-    canvas.width = width * ratio;
-    canvas.height = height * ratio;
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     // Resizing resets the context and clears the canvas.
     this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     this.ctx.imageSmoothingQuality = 'high';
     this.drawnGeneration = -1;
+    // Moving to a screen with another pixel ratio fires no resize.
+    this.pixelRatioQuery?.removeEventListener('change', this.resizeCanvas);
+    this.pixelRatioQuery = matchMedia(`(resolution: ${ratio}dppx)`);
+    this.pixelRatioQuery.addEventListener('change', this.resizeCanvas);
   };
 
   private startRenderLoop() {
@@ -272,7 +278,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     // turns fine patterns into bands. Below 1 the bitmap is pooled to 1-2 pixels per pooled cell. Sectors stay sharp.
     this.ctx.imageSmoothingEnabled = this.settings.smoothing() && this.devicePixelsPerCell() < 2 && !this.blockService.sectors;
     // Edges on whole device pixels: a pixel shared by two blocks would be blended twice and show as a light line.
-    const ratio = Math.ceil(window.devicePixelRatio);
+    const ratio = window.devicePixelRatio;
     const snap = (v: number) => Math.round(v * ratio) / ratio;
     const left = snap(blockCanvasX), top = snap(blockCanvasY);
     const width = snap(blockCanvasX + blockPixelSize) - left, height = snap(blockCanvasY + blockPixelSize) - top;
@@ -289,7 +295,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   // In physical pixels, matching the ratio the canvas is scaled by.
   private devicePixelsPerCell(): number {
-    return this.viewport.cellSize * Math.ceil(window.devicePixelRatio);
+    return this.viewport.cellSize * window.devicePixelRatio;
   }
 
   private poolFactorForZoom(): number {
