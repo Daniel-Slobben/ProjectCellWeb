@@ -275,7 +275,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const blockPixelSize = this.blockSize * cellSize;
 
     // Between 1 and 2 device pixels per cell, nearest-neighbour makes cells 1 or 2 pixels wide, which
-    // turns fine patterns into bands. Below 1 the bitmap is pooled to 1-2 pixels per pooled cell. Sectors stay sharp.
+    // turns fine patterns into bands. Further out the bitmap is pooled. Sectors stay sharp.
     this.ctx.imageSmoothingEnabled = this.settings.smoothing() && this.devicePixelsPerCell() < 2 && !this.blockService.sectors;
     // Edges on whole device pixels: a pixel shared by two blocks would be blended twice and show as a light line.
     const ratio = window.devicePixelRatio;
@@ -298,12 +298,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     return this.viewport.cellSize * window.devicePixelRatio;
   }
 
+  // Each pooled pixel covers 1–2 device pixels, so fine patterns average to grey instead of moiré. A 1x screen's pixels
+  // are big enough that 2 shows as blur, so there it covers 0.7–1.4.
   private poolFactorForZoom(): number {
-    const devicePixelsPerCell = this.devicePixelsPerCell();
-    if (devicePixelsPerCell >= 1) {
-      return 1;
-    }
-    // Never shrink a bitmap: each pooled pixel covers 1–2 device pixels, so fine patterns average to grey instead of moiré.
-    return Math.pow(2, Math.ceil(Math.log2(1 / devicePixelsPerCell)));
+    const smallestPooledPixel = window.devicePixelRatio < 2 ? Math.SQRT1_2 : 1;
+    return 2 ** Math.max(0, Math.ceil(Math.log2(smallestPooledPixel / this.devicePixelsPerCell())));
   }
 }
