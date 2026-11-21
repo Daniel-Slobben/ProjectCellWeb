@@ -48,7 +48,7 @@ The default set has five scenarios, about 10 s each including setup:
 | zoom-rapid | wheel at 120 Hz between 0.12 and 2.5 |
 | pan-pf1-edge | 0.42 device px per cell, just above the pooling threshold: the largest bitmaps per redraw |
 
-`--scenarios all`, or the panel, adds the extras: idle-min, pan-min-slow, fling-min, zoom-sweep,
+`--scenarios all`, or the panel, adds the extras: idle-min, pan-min-slow, fling-min, zoom-sectors, zoom-sweep,
 zoom-pan-min, pinch-min (Chromium only), idle-pf1-edge, pan-close and sectors-after-pan. Run any subset with
 `--scenarios a,b`.
 
@@ -116,6 +116,10 @@ The hooks infer cellSize from `drawImage`'s destination width (= blockSize × ce
 moves to sub-block tiles, update that one line, which is marked in `client/bench.js`. If drawing
 moves to an OffscreenCanvas in a worker, the main-thread hooks no longer see draws. The worker would
 then need to report its frames, for example by posting them to the page.
+
+Sectors are drawn into an OffscreenCanvas, which reaches the page in one `drawImage`. In sector mode, cellSize, srcMpx
+and cover therefore describe that image, not the blocks, and zoom-min-bounce turns back as soon as it zooms in.
+zoom-sectors counts wheel steps instead.
 
 ## Game of Life step (`bench/gol/`)
 
