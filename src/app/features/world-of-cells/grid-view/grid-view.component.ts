@@ -50,6 +50,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
   // blocks that changed.
   private sectorView?: {canvas: OffscreenCanvas, cellSize: number, ratio: number, range: BlockRange};
   private spareSectorCanvas?: OffscreenCanvas;
+  // Firefox draws them one by one in about 1 ms, so there the canvas only adds work.
+  private readonly cacheSectors = !navigator.userAgent.includes('Firefox/');
 
   private animationFrameId?: number;
 
@@ -242,8 +244,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const currentVisibleBlocks = new Set<string>();
     const drawnBlocks: {x: number, y: number}[] = [];
     const changed = this.blockService.takeChanged();
-    const sectors = this.blockService.sectors;
-    if (!sectors) this.sectorView = this.spareSectorCanvas = undefined;
+    const cached = this.cacheSectors && this.blockService.sectors;
+    if (!cached) this.sectorView = this.spareSectorCanvas = undefined;
 
     // One ring of blocks around the visible area, so small pans and zooms find them loaded.
     for (let blockX = startBlockX - requestBottomX; blockX <= endBlockX + requestTopX; blockX++) {
@@ -251,12 +253,12 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
         const key = getKey(blockX, blockY);
         currentVisibleBlocks.add(key)
         if (blockX >= startBlockX && blockX <= endBlockX && blockY >= startBlockY && blockY <= endBlockY) {
-          if (!sectors) this.drawBlockWithImageData(blockX, blockY);
+          if (!cached) this.drawBlockWithImageData(blockX, blockY);
           drawnBlocks.push({x: blockX, y: blockY});
         }
       }
     }
-    if (sectors) this.drawSectorView({minX: startBlockX, maxX: endBlockX, minY: startBlockY, maxY: endBlockY}, changed);
+    if (cached) this.drawSectorView({minX: startBlockX, maxX: endBlockX, minY: startBlockY, maxY: endBlockY}, changed);
     // Sectors once they are small on screen. CSS pixels are about the same size on a phone and a monitor, so a sector
     // at 1 px is as fine on either. A big screen switches earlier, once the view holds 350 blocks: with the ring that
     // stays under the backend's max-cell-blocks of 600. Back to cells a bit above that, so zooming around it does not
