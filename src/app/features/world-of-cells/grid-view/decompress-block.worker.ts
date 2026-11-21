@@ -1,11 +1,12 @@
 import {ZSTDDecoder} from 'zstddec';
-import {getKey} from './utils.component';
+import {getKey, tileBlocks} from './utils.component';
 import {BORDER, FramedBlock, FULL, readBlockFrame, readStrips, SECTOR} from './block-frame';
 import type {BlockRange} from '../../../requests/outgoing/ClientUpdateRequest';
 
 let blockSize: number;
 
 let poolFactor = 1;
+let sectorPoolFactor = 1;
 let densityGamma = 0.6;
 
 const blockGenerationMap = new Map<string, number>();
@@ -13,12 +14,14 @@ const encodedBlocks = new Map<string, Uint8Array>();
 const earlyBorders = new Map<string, FramedBlock[]>();
 // The share of alive cells per sector, 0-255, of the blocks in the published view that got sectors.
 const sectorBlocks = new Map<string, Uint8Array>();
+// Tiles whose sectors changed in this message, and the colours they were drawn in.
+const changedTiles = new Set<string>();
+let tileStyle = '';
+let sectorColors = new Int32Array(256);
 // The view the server was last sent, and whether it watches sectors. Only what it asks for is kept, until the block
 // leaves it: cells or sectors still on their way for a block outside it, or cells after the switch, would stay for good.
 let publishedView: BlockRange | null = null;
 let publishedSectors = false;
-// The blocks in view: those without cells show their sectors.
-const visible = new Set<string>();
 // a safety cap, about 25 seconds of ticks
 const maxEarlyBorders = 50;
 
@@ -36,6 +39,7 @@ async function handleMessage({type, batchId, payload}: any): Promise<void> {
   try {
     await zstdReady;
     await decodeBatch(type, payload, results);
+    await drawChangedTiles(results);
   } catch (err) {
     console.error(err);
   }
@@ -52,34 +56,29 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     densityGamma = payload.gamma;
     ALIVE = pixelOf(payload.alive);
     DEAD = pixelOf(payload.dead);
+    const style = `${payload.sectorPoolFactor} ${payload.alive} ${payload.dead} ${payload.gamma}`;
+    if (style !== tileStyle) {
+      tileStyle = style;
+      sectorPoolFactor = payload.sectorPoolFactor;
+      sectorColors = sectorColors.map((_, share) => densityPixel(share / 255));
+      for (const key of sectorBlocks.keys()) changedTiles.add(tileOf(key));
+    }
   }
 
   if (type === 'rescale') {
     for (const {x, y} of payload.data) {
       const data = encodedBlocks.get(getKey(x, y));
-      const sectors = sectorBlocks.get(getKey(x, y));
-      if (!data && !sectors) continue;
-      const bitmap = await toBitmap(data ? decodeByteArrayToImageData(data) : sectorImageData(sectors!));
-      results.push({bitmap, x, y});
+      if (data) results.push({bitmap: await toBitmap(decodeByteArrayToImageData(data)), x, y});
     }
-    return;
-  }
-
-  if (type === 'show') {
-    for (const {x, y} of payload.data) {
-      const key = getKey(x, y);
-      visible.add(key);
-      await pushSectors(key, x, y, results);
-    }
-    return;
-  }
-
-  if (type === 'hide') {
-    for (const {x, y} of payload.data) visible.delete(getKey(x, y));
     return;
   }
 
   if (type === 'view') {
+    // Back to sectors, those from before the cells are out of date, and a block pruned meanwhile gets none.
+    if (payload.sectors && !publishedSectors) {
+      for (const key of sectorBlocks.keys()) changedTiles.add(tileOf(key));
+      sectorBlocks.clear();
+    }
     publishedView = payload.view;
     publishedSectors = payload.sectors;
     for (const key of sectorBlocks.keys()) {
@@ -91,8 +90,8 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
       if (wantsCells(x, y)) continue;
       const hadCells = encodedBlocks.has(key);
       forgetCells(key);
-      // without sectors, a block in view that lost its cells shows nothing instead of its last cells
-      if (hadCells && visible.has(key) && !await pushSectors(key, x, y, results)) results.push({x, y});
+      // its tile shows through, or nothing until its sectors come
+      if (hadCells) results.push({x, y});
     }
     return;
   }
@@ -105,8 +104,6 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     if (block.type === FULL) {
       encodedBlocks.set(key, decodeFull(block.cells));
       blockGenerationMap.set(key, block.generation);
-      // older than the cells, and the server sends none for a block that is pruned meanwhile
-      sectorBlocks.delete(key);
       for (const border of takeEarlyBorders(key, block.generation)) {
         stepWithBorder(key, border);
       }
@@ -136,7 +133,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
       }
     } else if (block.type === SECTOR) {
       sectorBlocks.set(key, zstd.decode(block.cells));
-      await pushSectors(key, block.x, block.y, results);
+      changedTiles.add(tileOf(key));
     } else {
       console.warn(`Unknown block type ${block.type} for ${key}`);
     }
@@ -144,11 +141,57 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
 
 }
 
-async function pushSectors(key: string, x: number, y: number, results: any[]): Promise<boolean> {
-  const sectors = sectorBlocks.get(key);
-  if (!sectors || !visible.has(key) || encodedBlocks.has(key)) return false;
-  results.push({bitmap: await toBitmap(sectorImageData(sectors)), x, y});
-  return true;
+/** Each changed tile again, with which of its blocks have sectors. A tile without any comes without a bitmap. */
+async function drawChangedTiles(results: any[]): Promise<void> {
+  for (const key of changedTiles) {
+    const [x, y] = key.split('/').map(Number);
+    const present = new Uint8Array(tileBlocks * tileBlocks);
+    const image = tileImage(x, y, present);
+    results.push({tile: true, bitmap: image && await toBitmap(image, true), present, x, y});
+  }
+  changedTiles.clear();
+}
+
+/** A pixel per sectorPoolFactor x sectorPoolFactor sectors. Blocks without sectors stay transparent. */
+function tileImage(tileX: number, tileY: number, present: Uint8Array): ImageData | undefined {
+  let image: ImageData | undefined;
+  for (let i = 0; i < present.length; i++) {
+    const blockX = i % tileBlocks, blockY = Math.floor(i / tileBlocks);
+    const sectors = sectorBlocks.get(getKey(tileX * tileBlocks + blockX, tileY * tileBlocks + blockY));
+    if (!sectors) continue;
+    const size = Math.sqrt(sectors.length), pooled = Math.ceil(size / sectorPoolFactor);
+    if (!image) {
+      image = imageOfSize(tileBlocks * pooled);
+      image.data.fill(0);
+    }
+    poolSectors(sectors, size, new Int32Array(image.data.buffer), image.width, blockX * pooled, blockY * pooled);
+    present[i] = 1;
+  }
+  return image;
+}
+
+/**
+ * The backend sends the sectors per band down the rows, each band along the row, and its rows are the columns of the
+ * picture, like the cells.
+ */
+function poolSectors(sectors: Uint8Array, size: number, pixels: Int32Array, width: number, left: number, top: number): void {
+  const pool = sectorPoolFactor;
+  for (let x0 = 0, px = left; x0 < size; x0 += pool, px++) {
+    const x1 = Math.min(size, x0 + pool);
+    for (let y0 = 0, py = top; y0 < size; y0 += pool, py++) {
+      const y1 = Math.min(size, y0 + pool);
+      let sum = 0;
+      for (let x = x0; x < x1; x++) {
+        for (let y = y0; y < y1; y++) sum += sectors[x * size + y];
+      }
+      pixels[py * width + px] = sectorColors[Math.round(sum / ((x1 - x0) * (y1 - y0)))];
+    }
+  }
+}
+
+function tileOf(key: string): string {
+  const [x, y] = key.split('/').map(Number);
+  return getKey(Math.floor(x / tileBlocks), Math.floor(y / tileBlocks));
 }
 
 function inPublishedView(x: number, y: number): boolean {
@@ -163,20 +206,6 @@ function forgetCells(key: string): void {
   encodedBlocks.delete(key);
   blockGenerationMap.delete(key);
   earlyBorders.delete(key);
-}
-
-/**
- * One pixel per sector. The backend sends the sectors per band down the rows, each band along the row, and its rows are
- * the columns of the picture, like the cells.
- */
-function sectorImageData(sectors: Uint8Array): ImageData {
-  const size = Math.sqrt(sectors.length);
-  const imageData = imageOfSize(size);
-  const pixels = new Int32Array(imageData.data.buffer);
-  for (let x = 0; x < size; x++) {
-    for (let y = 0; y < size; y++) pixels[y * size + x] = densityPixel(sectors[x * size + y] / 255);
-  }
-  return imageData;
 }
 
 function stepWithBorder(key: string, border: FramedBlock): void {
@@ -357,12 +386,15 @@ const canvasBitmaps = typeof OffscreenCanvas !== 'undefined'
   && !(/AppleWebKit/.test(navigator.userAgent) && !/Chrome\//.test(navigator.userAgent));
 let bitmapCanvas: OffscreenCanvas | undefined;
 let bitmapContext: OffscreenCanvasRenderingContext2D | null = null;
+let bitmapAlpha = false;
 
-async function toBitmap(image: ImageData): Promise<ImageBitmap> {
+async function toBitmap(image: ImageData, alpha = false): Promise<ImageBitmap> {
   if (!canvasBitmaps) return createImageBitmap(image);
-  if (bitmapCanvas?.width !== image.width || bitmapCanvas.height !== image.height || bitmapContext?.isContextLost?.()) {
+  if (bitmapCanvas?.width !== image.width || bitmapCanvas.height !== image.height || bitmapAlpha !== alpha
+    || bitmapContext?.isContextLost?.()) {
     bitmapCanvas = new OffscreenCanvas(image.width, image.height);
-    bitmapContext = bitmapCanvas.getContext('2d', {alpha: false});
+    bitmapContext = bitmapCanvas.getContext('2d', {alpha});
+    bitmapAlpha = alpha;
   }
   bitmapContext!.putImageData(image, 0, 0);
   return bitmapCanvas.transferToImageBitmap();

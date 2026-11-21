@@ -25,7 +25,8 @@
 // recorded viewport and blockSize. SECTORs aren't recorded: they're random at --density. --pattern noise serves random
 // cells at --density and --block-size instead.
 // --pattern lines serves alternating alive/dead lines, vertical and horizontal in a checkerboard of blocks, and
-// sends no BORDERs: the lines are a still life, so the blocks stay as they are.
+// sends no BORDERs: the lines are a still life, so the blocks stay as they are. Its sectors are gradients along x and
+// along y in the same checkerboard.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -112,7 +113,17 @@ function linePayloads(blockSize) {
   const vertical = new Uint8Array(blockSize * blockSize / 8);
   for (let x = 0; x < blockSize; x += 2) vertical.fill(0xff, x * blockSize / 8, (x + 1) * blockSize / 8);
   const horizontal = new Uint8Array(blockSize * blockSize / 8).fill(0x55);
-  return {full: [fullPayload(vertical, blockSize), fullPayload(horizontal, blockSize)], border: [], sector: [sectorPayload(blockSize, 0.5, () => 0.5)]};
+  return {full: [fullPayload(vertical, blockSize), fullPayload(horizontal, blockSize)], border: [],
+    sector: [gradientSectorPayload(blockSize, true), gradientSectorPayload(blockSize, false)]};
+}
+
+// Sectors from dead to alive along x, or along y, in the same checkerboard: sectors are column-major like the cells.
+function gradientSectorPayload(blockSize, alongX) {
+  const sectors = blockSize / 50;
+  return compress(new Uint8Array(sectors * sectors).map((_, i) => {
+    const x = Math.floor(i / sectors), y = i % sectors;
+    return Math.round(255 * (alongX ? x : y) / (sectors - 1));
+  }));
 }
 
 function makePayloads(blockSize, density) {

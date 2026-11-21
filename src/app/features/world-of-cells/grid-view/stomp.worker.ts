@@ -1,6 +1,6 @@
 import {IMessage, ReconnectionTimeMode, RxStomp} from '@stomp/rx-stomp';
-import {readBlockFrame} from './block-frame';
-import {workerIndex} from './utils.component';
+import {readBlockFrame, SECTOR} from './block-frame';
+import {tileBlocks, workerIndex} from './utils.component';
 
 export type SocketCommand =
   | {type: 'activate'; brokerURL: string; workers: number}
@@ -77,7 +77,9 @@ function onMessage(message: IMessage): void {
 
 function splitByWorker(frame: Uint8Array, workers: number): (ArrayBuffer | null)[] {
   const blocks = readBlockFrame(frame);
-  const owners = blocks.map((b) => workerIndex(b.x, b.y, workers));
+  const owners = blocks.map((b) => b.type === SECTOR
+    ? workerIndex(Math.floor(b.x / tileBlocks), Math.floor(b.y / tileBlocks), workers)
+    : workerIndex(b.x, b.y, workers));
   const sizes = new Array<number>(workers).fill(0);
   blocks.forEach((b, i) => sizes[owners[i]] += b.end - b.start);
 

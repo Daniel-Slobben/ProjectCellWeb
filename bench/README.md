@@ -117,9 +117,8 @@ moves to sub-block tiles, update that one line, which is marked in `client/bench
 moves to an OffscreenCanvas in a worker, the main-thread hooks no longer see draws. The worker would
 then need to report its frames, for example by posting them to the page.
 
-Sectors are drawn into an OffscreenCanvas, which reaches the page in one `drawImage`. In sector mode, cellSize, srcMpx
-and cover therefore describe that image, not the blocks, and zoom-min-bounce turns back as soon as it zooms in.
-zoom-sectors counts wheel steps instead.
+Sectors come in tiles of 8×8 blocks, drawn under the cells. The hooks take any bitmap that isn't blockSize / poolFactor
+wide for a tile. cover counts a tile's blocks that have no sectors yet, and blocks drawn over a tile twice.
 
 ## Game of Life step (`bench/gol/`)
 
