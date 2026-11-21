@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draw calls</title>
+<style>
+  body { margin: 0; font: 13px system-ui; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  pre { position: fixed; top: 0; left: 0; margin: 0; padding: 8px; background: #fffd; z-index: 1; }
+</style>
+</head>
+<body>
+<canvas></canvas>
+<pre>running…</pre>
+<script type="module">
+// Sector blocks at the zoom limit: one 40x40 bitmap per 16 px block, redrawn every frame while dragging.
+// Compares a drawImage per distinct ImageBitmap, per slot of one atlas canvas, and one image of the whole view.
+// ?blocks=16&ms=3000
+const params = new URLSearchParams(location.search);
+const blockPx = Number(params.get('blocks') ?? 16), ms = Number(params.get('ms') ?? 3000), side = 40;
+const canvas = document.querySelector('canvas'), out = document.querySelector('pre');
+const ratio = devicePixelRatio, width = innerWidth, height = innerHeight;
+canvas.width = Math.round(width * ratio);
+canvas.height = Math.round(height * ratio);
+const ctx = canvas.getContext('2d');
+ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+ctx.imageSmoothingEnabled = false;
+const cols = Math.ceil(width / blockPx) + 1, rows = Math.ceil(height / blockPx) + 1, count = cols * rows;
+
+function noise(w, h) {
+  const image = new ImageData(w, h), pixels = new Uint32Array(image.data.buffer);
+  for (let i = 0; i < pixels.length; i++) pixels[i] = Math.random() < 0.3 ? 0xff000000 : 0xffffffff;
+  return image;
+}
+
+// As the decode worker makes them: through an OffscreenCanvas in Chrome and Firefox, createImageBitmap in WebKit.
+async function bitmaps() {
+  const webkit = /AppleWebKit/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+  const off = new OffscreenCanvas(side, side), octx = off.getContext('2d', {alpha: false});
+  const list = [];
+  for (let i = 0; i < count; i++) {
+    if (webkit) {
+      list.push(await createImageBitmap(noise(side, side)));
+    } else {
+      octx.putImageData(noise(side, side), 0, 0);
+      list.push(off.transferToImageBitmap());
+    }
+  }
+  return list;
+}
+
+function atlas() {
+  const perRow = 64, atlas = document.createElement('canvas');
+  atlas.width = perRow * side;
+  atlas.height = Math.ceil(count / perRow) * side;
+  const actx = atlas.getContext('2d', {alpha: false});
+  for (let i = 0; i < count; i++) actx.putImageData(noise(side, side), (i % perRow) * side, Math.floor(i / perRow) * side);
+  return {atlas, perRow};
+}
+
+function view() {
+  const image = document.createElement('canvas');
+  image.width = cols * side;
+  image.height = rows * side;
+  image.getContext('2d', {alpha: false}).putImageData(noise(image.width, image.height), 0, 0);
+  return image;
+}
+
+const variants = {
+  bitmaps: async () => {
+    const list = await bitmaps();
+    return (dx, dy) => {
+      for (let i = 0; i < count; i++) ctx.drawImage(list[i], (i % cols) * blockPx + dx, Math.floor(i / cols) * blockPx + dy, blockPx, blockPx);
+    };
+  },
+  atlas: async () => {
+    const {atlas: a, perRow} = atlas();
+    return (dx, dy) => {
+      for (let i = 0; i < count; i++) {
+        ctx.drawImage(a, (i % perRow) * side, Math.floor(i / perRow) * side, side, side,
+          (i % cols) * blockPx + dx, Math.floor(i / cols) * blockPx + dy, blockPx, blockPx);
+      }
+    };
+  },
+  atlasBitmap: async () => {
+    const {atlas: a, perRow} = atlas(), bitmap = await createImageBitmap(a);
+    return (dx, dy) => {
+      for (let i = 0; i < count; i++) {
+        ctx.drawImage(bitmap, (i % perRow) * side, Math.floor(i / perRow) * side, side, side,
+          (i % cols) * blockPx + dx, Math.floor(i / cols) * blockPx + dy, blockPx, blockPx);
+      }
+    };
+  },
+  view: async () => {
+    const image = view();
+    return (dx, dy) => ctx.drawImage(image, dx, dy, cols * blockPx, rows * blockPx);
+  },
+};
+
+async function run(name) {
+  const draw = await variants[name]();
+  const frames = [], js = [];
+  await new Promise((r) => requestAnimationFrame(r));
+  const start = performance.now();
+  let last = start;
+  await new Promise((done) => {
+    const frame = (now) => {
+      frames.push(now - last);
+      last = now;
+      const t0 = performance.now(), a = (now - start) / 300;
+      ctx.clearRect(0, 0, width, height);
+      draw(-blockPx + blockPx * (1 + Math.cos(a)) / 2, -blockPx + blockPx * (1 + Math.sin(a)) / 2);
+      js.push(performance.now() - t0);
+      if (now - start < ms) requestAnimationFrame(frame); else done();
+    };
+    requestAnimationFrame(frame);
+  });
+  const p = (a, q) => [...a].sort((x, y) => x - y)[Math.floor(q * (a.length - 1))];
+  const sum = frames.slice(1).reduce((s, x) => s + x, 0);
+  return {name, fps: +(1000 * (frames.length - 1) / sum).toFixed(1), frameP50: +p(frames.slice(1), 0.5).toFixed(1),
+    frameP95: +p(frames.slice(1), 0.95).toFixed(1), jsP50: +p(js, 0.5).toFixed(2)};
+}
+
+const results = [];
+for (const name of (params.get('variants') ?? 'bitmaps,atlas,atlasBitmap,view').split(',')) {
+  results.push(await run(name));
+  out.textContent = `${count} blocks of ${blockPx} px, ${width}x${height} @${ratio}\n` +
+    results.map((r) => `${r.name.padEnd(8)} fps ${r.fps}  frame p50 ${r.frameP50} p95 ${r.frameP95}  js p50 ${r.jsP50}`).join('\n');
+}
+window.__results = {count, blockPx, width, height, ratio, results};
+</script>
+</body>
+</html>

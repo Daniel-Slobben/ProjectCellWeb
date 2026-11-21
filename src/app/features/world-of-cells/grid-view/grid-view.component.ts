@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import {HttpClient} from '@angular/common/http';
 import {BlockService} from './block-service';
-import { getKey } from './utils.component';
+import {getKey, tileBlocks} from './utils.component';
 import {Settings} from '../../../requests/incoming/Settings';
 import {Coordinates} from '../../../requests/incoming/Coordinates';
 import {finalize, retry, Subscription, timeout} from 'rxjs';
@@ -233,6 +233,7 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
     const currentVisibleBlocks = new Set<string>();
     const drawnBlocks: {x: number, y: number}[] = [];
+    this.drawTiles(startBlockX, endBlockX, startBlockY, endBlockY);
 
     // One ring of blocks around the visible area, so small pans and zooms find them loaded.
     for (let blockX = startBlockX - requestBottomX; blockX <= endBlockX + requestTopX; blockX++) {
@@ -256,8 +257,10 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     this.blockService.updateVisible({
       minX: startBlockX - requestBottomX, maxX: endBlockX + requestTopX, minY: startBlockY - requestBottomY, maxY: endBlockY + requestTopY,
     }, currentVisibleBlocks);
+    const devicePixelsPerCell = this.devicePixelsPerCell();
     this.blockService.setRendering({
-      poolFactor: this.poolFactorForZoom(), alive: this.settings.alive(), dead: this.settings.dead(), gamma: this.settings.gamma(),
+      poolFactor: this.poolFactorFor(devicePixelsPerCell), sectorPoolFactor: this.poolFactorFor(devicePixelsPerCell * this.sectorSize),
+      alive: this.settings.alive(), dead: this.settings.dead(), gamma: this.settings.gamma(),
     }, drawnBlocks);
   }
 
@@ -277,8 +280,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     const blockPixelSize = this.blockSize * cellSize;
 
     // Between 1 and 2 device pixels per cell, nearest-neighbour makes cells 1 or 2 pixels wide, which
-    // turns fine patterns into bands. Further out the bitmap is pooled. Sectors stay sharp.
-    this.ctx.imageSmoothingEnabled = this.settings.smoothing() && this.devicePixelsPerCell() < 2 && !this.blockService.sectors;
+    // turns fine patterns into bands. Further out the bitmap is pooled.
+    this.ctx.imageSmoothingEnabled = this.settings.smoothing() && this.devicePixelsPerCell() < 2;
     // Edges on whole device pixels: a pixel shared by two blocks would be blended twice and show as a light line.
     const ratio = window.devicePixelRatio;
     const snap = (v: number) => Math.round(v * ratio) / ratio;
@@ -295,6 +298,36 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  // Under the cells, so a block shows its sectors until its cells come. Sectors stay sharp.
+  private drawTiles(startBlockX: number, endBlockX: number, startBlockY: number, endBlockY: number) {
+    const {cellOffsetX, cellOffsetY, cellSize} = this.viewport;
+    const ratio = window.devicePixelRatio, blockPixels = this.blockSize * cellSize, tilePixels = tileBlocks * blockPixels;
+    const snap = (v: number) => Math.round(v * ratio) / ratio;
+    const borders = this.settings.borders() && this.blockService.sectors;
+    this.ctx.imageSmoothingEnabled = false;
+    this.ctx.beginPath();
+    for (let tileX = Math.floor(startBlockX / tileBlocks); tileX <= Math.floor(endBlockX / tileBlocks); tileX++) {
+      for (let tileY = Math.floor(startBlockY / tileBlocks); tileY <= Math.floor(endBlockY / tileBlocks); tileY++) {
+        const tile = this.blockService.getTile(tileX, tileY);
+        if (!tile) continue;
+        const x = (tileX * tileBlocks * this.blockSize - cellOffsetX) * cellSize;
+        const y = (tileY * tileBlocks * this.blockSize - cellOffsetY) * cellSize;
+        const left = snap(x), top = snap(y);
+        this.ctx.drawImage(tile.bitmap, left, top, snap(x + tilePixels) - left, snap(y + tilePixels) - top);
+        if (!borders) continue;
+        tile.present.forEach((present, i) => {
+          if (present) this.ctx.rect(x + (i % tileBlocks) * blockPixels, y + Math.floor(i / tileBlocks) * blockPixels, blockPixels, blockPixels);
+        });
+      }
+    }
+    // One path for all blocks: a stroke per block would be thousands of calls again.
+    if (borders) {
+      this.ctx.lineWidth = 1;
+      this.ctx.strokeStyle = this.settings.alive() + '80';
+      this.ctx.stroke();
+    }
+  }
+
   // In physical pixels, matching the ratio the canvas is scaled by.
   private devicePixelsPerCell(): number {
     return this.viewport.cellSize * window.devicePixelRatio;
@@ -302,8 +335,8 @@ export class GridViewComponent implements AfterViewInit, OnDestroy {
 
   // Each pooled pixel covers 1–2 device pixels, so fine patterns average to grey instead of moiré. A 1x screen's pixels
   // are big enough that 2 shows as blur, so there it covers 0.7–1.4.
-  private poolFactorForZoom(): number {
+  private poolFactorFor(devicePixels: number): number {
     const smallestPooledPixel = window.devicePixelRatio < 2 ? Math.SQRT1_2 : 1;
-    return 2 ** Math.max(0, Math.ceil(Math.log2(smallestPooledPixel / this.devicePixelsPerCell())));
+    return 2 ** Math.max(0, Math.ceil(Math.log2(smallestPooledPixel / devicePixels)));
   }
 }

@@ -1,7 +1,7 @@
 import {Injectable, OnDestroy} from '@angular/core';
 import {BlockRange, ClientUpdateRequest} from '../../../requests/outgoing/ClientUpdateRequest';
 import {Subject} from 'rxjs';
-import {getKey, workerIndex} from './utils.component';
+import {getKey, tileBlocks, workerIndex} from './utils.component';
 import type {SocketCommand, SocketEvent} from './stomp.worker';
 
 type BlockPosition = {x: number, y: number};
@@ -9,15 +9,25 @@ type BlockPosition = {x: number, y: number};
 /** How the workers draw a block. */
 export interface Rendering {
   poolFactor: number;
+  sectorPoolFactor: number;
   alive: string;
   dead: string;
   gamma: number;
+}
+
+/** The sectors of tileBlocks x tileBlocks blocks. present[y * tileBlocks + x] is 1 for the blocks that have sectors. */
+export interface Tile {
+  bitmap: ImageBitmap;
+  present: Uint8Array;
 }
 
 interface WorkerResult {
   bitmap?: ImageBitmap;
   error?: boolean;
   border?: boolean;
+  // x and y are then a tile's.
+  tile?: boolean;
+  present?: Uint8Array;
   x: number;
   y: number;
 }
@@ -32,6 +42,7 @@ interface PendingBatch {
 export class BlockService implements OnDestroy {
   private readonly socket: Worker;
   private readonly blockData = new Map<string, ImageBitmap | undefined>();
+  private readonly tiles = new Map<string, Tile>();
   private generation = 0;
 
   public activeBlocks = new Set<string>();
@@ -50,7 +61,7 @@ export class BlockService implements OnDestroy {
   private readonly workerCount = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
   private pendingBatches: PendingBatch[] = [];
   private lastBatchId = 0;
-  private rendering: Rendering = {poolFactor: 1, alive: '#000000', dead: '#ffffff', gamma: 0.6};
+  private rendering: Rendering = {poolFactor: 1, sectorPoolFactor: 1, alive: '#000000', dead: '#ffffff', gamma: 0.6};
   private blockSize = 0;
 
   // The backend's tick rate. Border updates are held back a tick and shown one per tick, so they keep a steady rhythm.
@@ -135,17 +146,18 @@ export class BlockService implements OnDestroy {
     }
 
     this.dispatchToWorkers('init', []);
-    this.dispatchToWorkers('show', positions(this.activeBlocks));
   }
 
+  // Workers draw their tiles again by themselves when the sector pool factor or the colours change.
   setRendering(rendering: Rendering, visible: BlockPosition[]): void {
-    const {poolFactor, alive, dead, gamma} = this.rendering;
-    if (rendering.poolFactor === poolFactor && rendering.alive === alive && rendering.dead === dead && rendering.gamma === gamma) return;
+    const {poolFactor, sectorPoolFactor, alive, dead, gamma} = this.rendering;
+    if (rendering.poolFactor === poolFactor && rendering.sectorPoolFactor === sectorPoolFactor && rendering.alive === alive
+      && rendering.dead === dead && rendering.gamma === gamma) return;
     this.rendering = rendering;
     this.dispatchToWorkers('rescale', visible.filter(({x, y}) => this.blockData.has(getKey(x, y))));
   }
 
-  private dispatchToWorkers(type: 'init' | 'rescale' | 'show' | 'hide', blocks: BlockPosition[]): void {
+  private dispatchToWorkers(type: 'init' | 'rescale', blocks: BlockPosition[]): void {
     // Before the first connection there are no workers.
     if (this.workers.length === 0) return;
     const perWorker: BlockPosition[][] = this.workers.map(() => []);
@@ -192,7 +204,8 @@ export class BlockService implements OnDestroy {
     const immediate = results.filter((r) => !r.border);
 
     if (immediate.length > 0) {
-      const fresh = new Set(immediate.filter((r) => r.bitmap).map(({x, y}) => getKey(x, y)));
+      // Also a block that lost its cells: a border still held back would bring them back.
+      const fresh = new Set(immediate.filter((r) => !r.tile && !r.error).map(({x, y}) => getKey(x, y)));
       this.dropDelayed((key) => fresh.has(key));
       this.applyResults(immediate);
     }
@@ -228,8 +241,15 @@ export class BlockService implements OnDestroy {
   private applyResults(results: WorkerResult[]): void {
     this.generation++;
 
-    for (const {bitmap, error, x, y} of results) {
+    for (const {bitmap, error, tile, present, x, y} of results) {
       const key = getKey(x, y);
+
+      if (tile) {
+        this.tiles.get(key)?.bitmap.close();
+        if (bitmap) this.tiles.set(key, {bitmap, present: present!});
+        else this.tiles.delete(key);
+        continue;
+      }
 
       if (error) {
         this.resend.add(key);
@@ -255,13 +275,15 @@ export class BlockService implements OnDestroy {
         this.blockData.delete(key);
       }
     }
+    for (const [key, tile] of this.tiles) {
+      const [x, y] = key.split('/').map(Number);
+      const left = x * tileBlocks, top = y * tileBlocks;
+      if (left > view.maxX || left + tileBlocks <= view.minX || top > view.maxY || top + tileBlocks <= view.minY) {
+        tile.bitmap.close();
+        this.tiles.delete(key);
+      }
+    }
     this.dropDelayed((key) => !visibleKeys.has(key));
-
-    // Workers draw the sectors of the blocks in view that have no cells.
-    const shown = [...visibleKeys].filter((key) => !this.activeBlocks.has(key));
-    const hidden = [...this.activeBlocks].filter((key) => !visibleKeys.has(key));
-    if (shown.length > 0) this.dispatchToWorkers('show', positions(shown));
-    if (hidden.length > 0) this.dispatchToWorkers('hide', positions(hidden));
 
     this.activeBlocks = new Set(visibleKeys);
     this.view = view;
@@ -304,6 +326,10 @@ export class BlockService implements OnDestroy {
     return this.blockData.get(key);
   }
 
+  getTile(tileX: number, tileY: number): Tile | undefined {
+    return this.tiles.get(getKey(tileX, tileY));
+  }
+
   private teardownSession(): void {
     if (this.publishTimer !== null) {
       clearTimeout(this.publishTimer);
@@ -328,17 +354,12 @@ export class BlockService implements OnDestroy {
     // The server sends nothing for blocks that were pruned meanwhile, so their old picture would stay.
     for (const bitmap of this.blockData.values()) bitmap?.close();
     this.blockData.clear();
+    for (const tile of this.tiles.values()) tile.bitmap.close();
+    this.tiles.clear();
 
     this.publishedView = null;
     this.resend.clear();
     this.publishedSectors = false;
     this.generation++;
   }
-}
-
-function positions(keys: Iterable<string>): BlockPosition[] {
-  return [...keys].map((key) => {
-    const [x, y] = key.split('/').map(Number);
-    return {x, y};
-  });
 }

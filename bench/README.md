@@ -48,7 +48,7 @@ The default set has five scenarios, about 10 s each including setup:
 | zoom-rapid | wheel at 120 Hz between 0.12 and 2.5 |
 | pan-pf1-edge | 0.42 device px per cell, just above the pooling threshold: the largest bitmaps per redraw |
 
-`--scenarios all`, or the panel, adds the extras: idle-min, pan-min-slow, fling-min, zoom-sweep,
+`--scenarios all`, or the panel, adds the extras: idle-min, pan-min-slow, fling-min, zoom-sectors, zoom-sweep,
 zoom-pan-min, pinch-min (Chromium only), idle-pf1-edge, pan-close and sectors-after-pan. Run any subset with
 `--scenarios a,b`.
 
@@ -117,6 +117,9 @@ moves to sub-block tiles, update that one line, which is marked in `client/bench
 moves to an OffscreenCanvas in a worker, the main-thread hooks no longer see draws. The worker would
 then need to report its frames, for example by posting them to the page.
 
+Sectors come in tiles of 8×8 blocks, drawn under the cells. The hooks take any bitmap that isn't blockSize / poolFactor
+wide for a tile. cover counts a tile's blocks that have no sectors yet, and blocks drawn over a tile twice.
+
 ## Game of Life step (`bench/gol/`)
 
 A separate, quicker check of the decode worker's `stepGameOfLife`, outside the app:
@@ -157,3 +160,9 @@ a proxy that can kill the `/ws` socket or turn it half-open, and optionally free
 "standby" or only hides it. It prints the time from wake to the first freshly decoded bitmap, plus a
 timeline of socket opens/closes and `/gen-api` calls. `--scenarios kill,sleep3-halfopen,hidden15,...`,
 `--headed`, `--backend <port>`.
+
+## Draw calls (`bench/draw-calls.mjs`)
+
+`node bench/draw-calls.mjs` opens `draw-calls.html` in each browser and redraws a screen of 16 px blocks every frame,
+as sectors at the zoom limit are drawn: a drawImage per 40x40 bitmap, per slot of one atlas, or one image for the
+whole view. `--blocks`, `--viewport`, `--dpr` and `--variants` change it. The page also runs on its own, e.g. on a phone.

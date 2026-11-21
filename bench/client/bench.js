@@ -81,6 +81,14 @@
 
   // --- canvas: count draws, source/new pixels and covered area; infer cellSize ---
   const C2D = CanvasRenderingContext2D.prototype;
+  // getTransform allocates a matrix: once per drawImage, it held Firefox's 7000 sector draws per frame at 53 fps instead
+  // of 93. The app only changes the transform with setTransform.
+  let transform = null;
+  const nativeSetTransform = C2D.setTransform;
+  C2D.setTransform = function () {
+    transform = null;
+    return nativeSetTransform.apply(this, arguments);
+  };
   const nativeDrawImage = C2D.drawImage;
   C2D.drawImage = function (image) {
     const t0 = now();
@@ -106,13 +114,15 @@
       if (rec.on && origin !== undefined) rec.drawToScreen.push(t1 - origin);
     }
     // Area in device pixels, clipped to the canvas. Blocks do not overlap, so the sum is the union.
-    const m = this.getTransform();
+    const m = transform ??= this.getTransform();
     const x0 = Math.max(0, m.a * dx + m.e), x1 = Math.min(this.canvas.width, m.a * (dx + dw) + m.e);
     const y0 = Math.max(0, m.d * dy + m.f), y1 = Math.min(this.canvas.height, m.d * (dy + dh) + m.f);
     if (x1 > x0 && y1 > y0) f.coverPx += (x1 - x0) * (y1 - y0);
-    // One block per drawImage today: destination width = blockSize * cellSize in device pixels.
-    // If drawing moves to tiles, this is the one place that needs to learn the tile size.
-    if (state.blockSize) state.cellSize = (dw * m.a) / devicePixelScale() / state.blockSize;
+    // A block's bitmap is blockSize / poolFactor wide, and its destination width blockSize * cellSize in device pixels.
+    // Any other width is a tile of sectors, 8 x 8 blocks (tileBlocks in utils.component.ts). Builds before tiles drew a
+    // block's sectors, a pixel per 50 cells.
+    const blocks = isBlockWidth(iw) || iw === state.blockSize / 50 ? 1 : 8;
+    if (state.blockSize) state.cellSize = (dw * m.a) / devicePixelScale() / state.blockSize / blocks;
     if (rec.on) rec.bitmapWidths.add(iw);
     return result;
   };
@@ -124,6 +134,12 @@
       if (this.canvas === state.canvas) state.frame.canvasMs += now() - t0;
       return result;
     };
+  }
+  function isBlockWidth(width) {
+    for (let poolFactor = 1; poolFactor <= state.blockSize; poolFactor *= 2) {
+      if (Math.ceil(state.blockSize / poolFactor) === width) return true;
+    }
+    return false;
   }
   /** Device pixels per CSS pixel the app renders at: backing width over the CSS width it set. */
   function devicePixelScale() {
@@ -276,6 +292,7 @@
     wsThisFrame = 0;
     commitThisFrame = 0;
     state.frame = {calls: 0, canvasMs: 0, srcPx: 0, newPx: 0, coverPx: 0};
+    transform = null;
     hud.update();
     nativeRaf(frameLoop);
   }
@@ -447,6 +464,15 @@
       run: (ms) => strokes(ms, {length: 700, strokeMs: 120, gapMs: 250, directions: [0, 135, 270, 45, 180, 315, 90, 225]})},
     {name: 'zoom-min-bounce', zoom: 'min', desc: 'wheel at 120 Hz between minCellSize and 0.4: crosses the poolFactor steps',
       run: (ms) => wheelBetween(ms, {lo: 0, hi: 0.4})},
+    // 16 steps of 5% are 2.2x, and sectors go on to at least 2.5x minCellSize, so it stays in sectors on any screen.
+    {name: 'zoom-sectors', extra: true, zoom: 'min', desc: 'wheel at 120 Hz, 16 steps in and 16 out from minCellSize: stays in sectors',
+      run: async (ms) => {
+        const {w, h} = size(), start = now();
+        for (let i = 0; !aborted && now() - start < ms; i++) {
+          wheel(w / 2, h / 2, Math.floor(i / 16) % 2 ? 100 : -100);
+          await sleep(1000 / INPUT_HZ);
+        }
+      }},
     {name: 'zoom-rapid', zoom: 1, desc: 'wheel at 120 Hz between 0.12 and 2.5 at the centre',
       run: (ms) => wheelBetween(ms, {lo: 0.12, hi: 2.5})},
     {name: 'zoom-sweep', extra: true, zoom: 'min', desc: 'wheel at 120 Hz from minCellSize to maxCellSize and back',
