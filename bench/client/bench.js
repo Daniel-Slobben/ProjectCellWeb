@@ -450,6 +450,8 @@
   // The app pools blocks below 0.4 device pixels per cell; just above that, every block is a full
   // blockSize x blockSize bitmap while 25-40 of them are on screen: the largest bitmaps per frame.
   const pf1Edge = (scale) => 0.42 / scale;
+  // Just above the switch to sectors (grid-view's maxCellBlocks of 350 and sectorSize of 50): the most blocks with cells.
+  const cellsOut = () => { const {w, h} = size(); return 1.08 * Math.max(1, Math.sqrt(w * h / 350) * 50 / state.blockSize) / 50; };
 
   const scenarios = [
     {name: 'idle-min', extra: true, zoom: 'min', desc: 'minCellSize, no input: tick redraws only',
@@ -497,6 +499,8 @@
         touch('touchend', at(ms));
       }},
     {name: 'idle-pf1-edge', extra: true, zoom: pf1Edge, desc: '0.42 device px per cell (largest unpooled bitmaps), no input',
+      run: (ms) => sleep(ms)},
+    {name: 'idle-cells-out', extra: true, zoom: cellsOut, desc: 'zoomed out as far as cells go, no input: the most blocks the workers step per tick',
       run: (ms) => sleep(ms)},
     {name: 'pan-pf1-edge', zoom: pf1Edge, desc: '0.42 device px per cell, circular drag r 250 px',
       run: (ms) => { const {w, h} = size(); return drag(ms, (t) => ({x: w / 2 + 250 * Math.cos(2 * Math.PI * t / 2000), y: h / 2 + 250 * Math.sin(2 * Math.PI * t / 2000)})); }},
@@ -689,6 +693,11 @@
     hud.status(`${name}: waiting for blocks`);
     const settled = await settle();
     await sleep(300);
+    if (new URLSearchParams(location.search).has('trace')) {
+      hud.status(`${name}: waiting for the trace`);
+      window.__benchAwaitingTrace = true;
+      while (!window.__benchTracing) await sleep(20);
+    }
     hud.status(`${name}: measuring`);
     rec.reset();
     rec.canvasPx = state.canvas.width * state.canvas.height;

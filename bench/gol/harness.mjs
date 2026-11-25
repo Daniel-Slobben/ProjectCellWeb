@@ -1,8 +1,8 @@
-// Correctness and speed checks for the worker's stepGameOfLife, current tree against a baseline commit.
+// Correctness and speed checks for the worker's Game of Life step, current tree against a baseline commit.
 // run.mjs builds ./.build/current.mjs and ./.build/baseline.mjs from the worker source; this module is
 // imported by run.mjs in Node and by a page in each browser.
-import {gol as current} from './.build/current.mjs';
-import {gol as baseline} from './.build/baseline.mjs';
+import {worker as current} from './.build/current.mjs';
+import {worker as baseline} from './.build/baseline.mjs';
 
 function rng(seed) {
   return () => {
@@ -38,47 +38,52 @@ function firstInnerDifference(a, b, n) {
   return null;
 }
 
-/** Overwrites the edge cells like the worker's writeBorder does, with the same random bits on every call. */
-function randomBorder(n, density, r) {
-  const bits = Array.from({length: 4 * n - 4}, () => (r() < density ? 1 : 0));
-  return (block) => {
-    let k = 0;
-    const last = n - 1;
-    for (let x = 0; x < n; x++) setBit(block, x * n + last, bits[k++]);
-    for (let x = 0; x < n; x++) setBit(block, x * n, bits[k++]);
-    for (let y = 1; y < last; y++) setBit(block, y, bits[k++]);
-    for (let y = 1; y < last; y++) setBit(block, last * n + y, bits[k++]);
-  };
+/** A BORDER payload as the worker's writeBorder reads it, of random cells. */
+function randomBorder(n, density, r, compress) {
+  const bits = new Uint8Array(Math.ceil((4 * n - 4) / 8));
+  for (let i = 0; i < 4 * n - 4; i++) if (r() < density) setBit(bits, i, 1);
+  return new Uint8Array(compress(bits));
 }
 
+const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+
 /**
- * Steps random blocks for many generations with both versions. The current version must match the
- * naive count on the inner cells, and after the border is written, as in the worker, it must be
- * byte-identical to the baseline.
+ * Steps random blocks for many generations with both versions, a random border written after each step, as in the
+ * worker. The current version must match the naive count on the inner cells, and the baseline on every cell and on
+ * the image at a pool factor that changes every few generations.
  */
-export function verify({sizes = [3, 4, 5, 8, 31, 32, 33, 63, 64, 65, 96, 100, 127, 128, 500, 512, 1999, 2000]} = {}) {
+export async function verify({sizes = [3, 4, 5, 8, 31, 32, 33, 63, 64, 65, 96, 100, 127, 128, 500, 512, 1999, 2000]} = {}) {
+  const {zstdCompressSync} = await import('node:zlib');
+  await Promise.all([current.zstdReady, baseline.zstdReady]);
   const densities = [0, 0.03, 1 / 6, 0.5, 1];
+  const pools = [16, 16, 16, 8, 8, 8, 2, 32, 32, 32, 1, 64, 64, 64, 4, 16, 16];
   const failures = [];
   let cases = 0, generations = 0;
   for (const n of sizes) for (const density of densities) {
     current.setBlockSize(n);
     baseline.setBlockSize(n);
     const r = rng(n * 1000 + Math.round(density * 100));
-    let a = randomBlock(n, density, r), b = a.slice();
-    const gens = n >= 1999 ? 3 : n >= 500 ? 6 : 25;
+    const start = randomBlock(n, density, r);
+    const a = current.load(start), b = baseline.load(start.slice());
+    const gens = n >= 1999 ? 8 : n >= 500 ? 17 : 34;
     for (let g = 0; g < gens; g++) {
-      const reference = n <= 512 || g === 0 ? naive(a, n) : null;
-      const nextA = current.stepGameOfLife(a), nextB = baseline.stepGameOfLife(b);
-      const diff = reference ? firstInnerDifference(nextA, reference, n) : null;
-      if (diff) failures.push(`n=${n} density=${density.toFixed(2)} gen=${g}: differs from the naive count at ${diff}`);
-      const border = randomBorder(n, density, r);
-      border(nextA);
-      border(nextB);
-      if (nextA.length !== nextB.length || nextA.some((v, i) => v !== nextB[i])) {
-        failures.push(`n=${n} density=${density.toFixed(2)} gen=${g}: differs from the baseline`);
+      const pf = pools[g % pools.length];
+      current.setPoolFactor(pf);
+      baseline.setPoolFactor(pf);
+      const reference = n <= 512 || g === 0 ? naive(current.bits(a), n) : null;
+      current.step(a);
+      baseline.step(b);
+      const diff = reference ? firstInnerDifference(current.bits(a), reference, n) : null;
+      const at = `n=${n} density=${density.toFixed(2)} gen=${g}`;
+      if (diff) failures.push(`${at}: differs from the naive count at ${diff}`);
+      const border = randomBorder(n, density, r, zstdCompressSync);
+      for (const [version, state] of [[current, a], [baseline, b]]) {
+        version.writeBorder(border, state);
+        version.recount(state);
       }
-      a = nextA;
-      b = nextB;
+      if (!same(current.bits(a), baseline.bits(b))) failures.push(`${at}: cells differ from the baseline`);
+      const imageA = current.image(a), imageB = baseline.image(b);
+      if (imageA.width !== imageB.width || !same(imageA.data, imageB.data)) failures.push(`${at} pf=${pf}: image differs from the baseline`);
       generations++;
     }
     cases++;
@@ -91,17 +96,17 @@ export function bench({n = 2000, rounds = 9, gens = 10} = {}) {
   current.setBlockSize(n);
   baseline.setBlockSize(n);
   const start = randomBlock(n, 1 / 6, rng(42));
-  const time = (step) => {
-    let block = start;
+  const time = (version) => {
+    const state = version.load(start.slice());
     const t0 = performance.now();
-    for (let g = 0; g < gens; g++) block = step(block);
+    for (let g = 0; g < gens; g++) version.step(state);
     return (performance.now() - t0) / gens;
   };
-  for (let w = 0; w < 3; w++) { time(baseline.stepGameOfLife); time(current.stepGameOfLife); }
+  for (let w = 0; w < 3; w++) { time(baseline); time(current); }
   const baselineMs = [], currentMs = [];
   for (let r = 0; r < rounds; r++) {
-    if (r % 2) { baselineMs.push(time(baseline.stepGameOfLife)); currentMs.push(time(current.stepGameOfLife)); }
-    else { currentMs.push(time(current.stepGameOfLife)); baselineMs.push(time(baseline.stepGameOfLife)); }
+    if (r % 2) { baselineMs.push(time(baseline)); currentMs.push(time(current)); }
+    else { currentMs.push(time(current)); baselineMs.push(time(baseline)); }
   }
   const median = (a) => [...a].sort((x, y) => x - y)[a.length >> 1];
   return {n, baselineMs: +median(baselineMs).toFixed(2), currentMs: +median(currentMs).toFixed(2),
