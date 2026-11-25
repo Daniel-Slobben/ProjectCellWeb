@@ -109,15 +109,14 @@ if (opts.browsers) {
     if (url === '/') return send('text/html', page);
     if (url === '/entry.mjs') return send('text/javascript', entry);
     if (url === '/recording') return send('application/octet-stream', recording);
-    const file = path.join(workerDir, url);
-    if (!file.startsWith(workerDir) || !fs.existsSync(file)) { res.writeHead(404); return res.end(); }
-    send('text/javascript', fs.readFileSync(file));
-  }).listen(0);
+    if (!['/harness.mjs', '/.build/current.mjs', '/.build/baseline.mjs'].includes(url)) { res.writeHead(404); return res.end(); }
+    send('text/javascript', fs.readFileSync(path.join(workerDir, url)));
+  }).listen(0, '127.0.0.1');
   try {
     for (const name of opts.browsers.split(',')) {
       const browser = await launchers[name]();
       const tab = await browser.newPage();
-      await tab.goto(`http://localhost:${server.address().port}/`);
+      await tab.goto(`http://127.0.0.1:${server.address().port}/`);
       await tab.waitForFunction(() => window.ready);
       report(name, await tab.evaluate((o) => window.inWorker(o), runOptions));
       if (opts.profile && name !== 'firefox' && name !== 'webkit') {

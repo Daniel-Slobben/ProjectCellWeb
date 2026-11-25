@@ -693,6 +693,11 @@
     hud.status(`${name}: waiting for blocks`);
     const settled = await settle();
     await sleep(300);
+    if (new URLSearchParams(location.search).has('trace')) {
+      hud.status(`${name}: waiting for the trace`);
+      window.__benchAwaitingTrace = true;
+      while (!window.__benchTracing) await sleep(20);
+    }
     hud.status(`${name}: measuring`);
     rec.reset();
     rec.canvasPx = state.canvas.width * state.canvas.height;

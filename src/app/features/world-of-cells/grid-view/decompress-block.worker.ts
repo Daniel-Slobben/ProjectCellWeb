@@ -210,8 +210,9 @@ function forgetCells(key: string): void {
 
 function stepWithBorder(key: string, border: FramedBlock): void {
   const frames = blocks.get(key)!;
+  const borderBits = decodeBorder(border.cells);
   step(frames);
-  writeBorder(border.cells, frames.current);
+  writeBorder(borderBits, frames.current);
   recount(frames.current);
   blockGenerationMap.set(key, border.generation);
 }
@@ -696,9 +697,11 @@ function transposeColumn(packed: Uint8Array, pixels: Int32Array, x: number): voi
   }
 }
 
-/** The packed bits of a block (column-major: bit[x * blockSize + y]) or its border, zstd compressed. */
-function decompress(compressedBytes: Uint8Array, size: number): Uint8Array {
-  return zstd.decode(compressedBytes, size);
+function decodeBorder(compressedBytes: Uint8Array): Uint8Array {
+  const size = Math.ceil((blockSize * 4 - 4) / 8);
+  const borderBits = zstd.decode(compressedBytes, size);
+  if (borderBits.length !== size) throw new Error(`border of ${borderBits.length} bytes, expected ${size}`);
+  return borderBits;
 }
 
 /**
@@ -723,12 +726,11 @@ function setCell(frame: Frame, x: number, y: number, alive: boolean): void {
 }
 
 /**
- * Decompresses a border payload and writes it over the border cells of the frame, setting and clearing, and marks the
- * words that changed. Inner cells are left as they are.
+ * Writes a decoded border over the border cells of the frame, setting and clearing, and marks the words that changed.
+ * Inner cells are left as they are.
  */
-function writeBorder(compressedBytes: Uint8Array, frame: Frame): void {
+function writeBorder(borderBits: Uint8Array, frame: Frame): void {
   const totalBits = blockSize * 4 - 4;
-  const borderBits = decompress(compressedBytes, Math.ceil(totalBits / 8));
 
   const last = blockSize - 1;
   let index = 0;

@@ -50,16 +50,15 @@ if (opts.browsers) {
       res.writeHead(200, {'content-type': 'text/html'});
       return res.end('<!doctype html><script type="module">import * as h from "/harness.mjs"; window.h = h; window.ready = true;</script>');
     }
-    const file = path.join(golDir, url);
-    if (!file.startsWith(golDir) || !fs.existsSync(file)) { res.writeHead(404); return res.end(); }
+    if (!['/harness.mjs', '/.build/current.mjs', '/.build/baseline.mjs'].includes(url)) { res.writeHead(404); return res.end(); }
     res.writeHead(200, {'content-type': 'text/javascript'});
-    res.end(fs.readFileSync(file));
-  }).listen(0);
+    res.end(fs.readFileSync(path.join(golDir, url)));
+  }).listen(0, '127.0.0.1');
   try {
     for (const name of opts.browsers.split(',')) {
       const browser = await launchers[name]();
       const page = await browser.newPage();
-      await page.goto(`http://localhost:${server.address().port}/`);
+      await page.goto(`http://127.0.0.1:${server.address().port}/`);
       await page.waitForFunction(() => window.ready);
       report(name, [await page.evaluate((n) => window.h.bench({n}), opts.size)]);
       await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 2000))]);

@@ -24,7 +24,7 @@ const framesFooter = `
 export const worker = {${common}
   load: framesOf,
   step,
-  writeBorder(border: Uint8Array, frames: Frames) { writeBorder(border, frames.current); },
+  writeBorder(border: Uint8Array, frames: Frames) { writeBorder(decodeBorder(border), frames.current); },
   recount(frames: Frames) { recount(frames.current); },
   image: (frames: Frames) => imageOf(frames.current),
   bits(frames: Frames) {

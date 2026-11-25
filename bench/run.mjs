@@ -113,7 +113,7 @@ function workerProfile(trace, top = 20) {
   const threadNames = new Map(events.filter((e) => e.ph === 'M' && e.name === 'thread_name').map((e) => [`${e.pid}:${e.tid}`, e.args.name]));
   const workerProfiles = new Set(events.filter((e) => e.name === 'Profile' && threadNames.get(`${e.pid}:${e.tid}`) === 'DedicatedWorker thread')
     .map((e) => `${e.pid}:${e.id}`));
-  const nodes = new Map(), self = new Map(), busy = new Map();
+  const nodes = new Map(), samples = new Map();
   for (const e of events) {
     const id = `${e.pid}:${e.id}`;
     if (e.name !== 'ProfileChunk' || !workerProfiles.has(id)) continue;
@@ -122,8 +122,14 @@ function workerProfile(trace, top = 20) {
       const {functionName, url, lineNumber} = node.callFrame;
       nodes.set(`${id}:${node.id}`, `${functionName || '(anonymous)'}${url ? ` ${path.basename(url)}:${lineNumber + 1}` : ''}`);
     }
-    (cpuProfile.samples ?? []).forEach((node, i) => {
-      const name = nodes.get(`${id}:${node}`), ms = (timeDeltas[i + 1] ?? 0) / 1000;
+    if (!samples.has(id)) samples.set(id, {nodes: [], timeDeltas: []});
+    samples.get(id).nodes.push(...(cpuProfile.samples ?? []));
+    samples.get(id).timeDeltas.push(...timeDeltas);
+  }
+  const self = new Map(), busy = new Map();
+  for (const [id, profile] of samples) {
+    profile.nodes.forEach((node, i) => {
+      const name = nodes.get(`${id}:${node}`), ms = (profile.timeDeltas[i + 1] ?? 0) / 1000;
       self.set(name, (self.get(name) ?? 0) + ms);
       if (name !== '(idle)' && name !== '(program)') busy.set(id, (busy.get(id) ?? 0) + ms);
     });
@@ -143,7 +149,7 @@ function findBaseline(browser, excludeRunId) {
   if (!opts.compare) return null;
   if (opts.compare !== 'latest') return loadRun(opts.compare);
   if (!fs.existsSync(resultsDir)) return null;
-  return fs.readdirSync(resultsDir).filter((f) => f.endsWith('.json')).map((f) => loadRun(path.join(resultsDir, f)))
+  return fs.readdirSync(resultsDir).filter((f) => f.endsWith('.json') && !f.endsWith('.trace.json')).map((f) => loadRun(path.join(resultsDir, f)))
     .filter((r) => r && r.runId !== excludeRunId && r.meta?.browser === browser && (r.meta.pattern ?? 'noise') === info.pattern)
     .sort((a, b) => b.meta.startedAt.localeCompare(a.meta.startedAt))[0] ?? null;
 }
@@ -185,17 +191,22 @@ try {
       errors.length = 0;
       const t0 = Date.now();
       let result;
+      let tracing = false;
       try {
-        await page.goto(`${server.url}?bench=${encodeURIComponent(name)}&duration=${opts.duration}&auto=1`);
-        const tracing = opts.trace && browserName !== 'firefox' && browserName !== 'webkit';
-        if (tracing) {
-          await page.waitForFunction(() => window.__bench?.rec.on || window.__benchResult, null, {timeout: 90000, polling: 50});
+        const traced = opts.trace && browserName !== 'firefox' && browserName !== 'webkit';
+        await page.goto(`${server.url}?bench=${encodeURIComponent(name)}&duration=${opts.duration}&auto=1${traced ? '&trace=1' : ''}`);
+        if (traced) {
+          await page.waitForFunction(() => window.__benchAwaitingTrace || window.__benchResult, null, {timeout: 90000, polling: 50});
+          if (await page.evaluate(() => !window.__benchAwaitingTrace)) throw new Error('the scenario ended before tracing started');
           await browser.startTracing(page, {categories: ['__metadata', 'devtools.timeline', 'disabled-by-default-devtools.timeline',
             'disabled-by-default-v8.cpu_profiler', 'v8']});
+          tracing = true;
+          await page.evaluate(() => { window.__benchTracing = true; });
         }
         await page.waitForFunction(() => window.__benchResult, null, {timeout: opts.duration + 90000, polling: 250});
         result = await page.evaluate(() => window.__benchResult);
         if (tracing) {
+          tracing = false;
           const trace = await browser.stopTracing();
           fs.mkdirSync(resultsDir, {recursive: true});
           fs.writeFileSync(path.join(resultsDir, `${runId}-${name}.trace.json`), trace);
@@ -203,6 +214,8 @@ try {
         }
       } catch (e) {
         result = {scenario: name, error: String(e.message ?? e)};
+      } finally {
+        if (tracing) await browser.stopTracing().catch(() => {});
       }
       if (errors.length) result.pageErrors = errors.slice(0, 5);
       run.results.push(result);

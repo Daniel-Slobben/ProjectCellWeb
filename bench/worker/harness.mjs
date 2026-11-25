@@ -55,8 +55,9 @@ export async function run(buffer, {pfs = [1, 2, 4, 8, 16, 32], generations = 20,
     const states = versions.map((v, i) => {
       const t0 = now();
       const packed = v.decodeFull(block.full);
+      const first = v.load(packed.slice());
       if (record) times[i].full.push(now() - t0);
-      return pfs.map(() => v.load(packed.slice()));
+      return [first, ...pfs.slice(1).map(() => v.load(packed.slice()))];
     });
     let generation = block.generation;
     for (const border of block.borders.slice(0, ticks)) {
@@ -184,6 +185,7 @@ export async function activity(buffer, {generations = 20, blocks: maxBlocks = 0,
       }
     }
   }
+  if (shares['live cells'].length === 0) throw new Error('--activity needs at least 2 generations');
   const share = (a) => ({avg: +avg(a).toFixed(4), p90: +pct(a, 0.9).toFixed(4), max: +Math.max(...a).toFixed(4)});
   return Object.fromEntries(Object.entries(shares).map(([k, v]) => [k, share(v)]));
 }
