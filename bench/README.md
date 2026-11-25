@@ -49,7 +49,9 @@ The default set has five scenarios, about 10 s each including setup:
 | pan-pf1-edge | 0.42 device px per cell, just above the pooling threshold: the largest bitmaps per redraw |
 
 `--scenarios all`, or the panel, adds the extras: idle-min, pan-min-slow, fling-min, zoom-sectors, zoom-sweep,
-zoom-pan-min, pinch-min (Chromium only), idle-pf1-edge, pan-close and sectors-after-pan. Run any subset with
+zoom-pan-min, pinch-min (Chromium only), idle-cells-out, idle-pf1-edge, pan-close and sectors-after-pan. idle-cells-out
+rests just above the switch to sectors, where the workers step the most blocks per tick; its `workers.tickLatencyP50` in
+the JSON is how long they take. Run any subset with
 `--scenarios a,b`.
 
 sectors-after-pan is a check rather than a timing: it zooms out to 0.06 and drags 600 px while the full blocks are
@@ -110,6 +112,17 @@ The STOMP client runs in a worker, so the page can't hook its socket directly. `
 the hook times the message handler (the `socket wkr ms` column) and tags what that worker posts, so
 tick→draw latency still starts when the message arrives.
 
+## Profiling the app (`--trace`)
+
+`--trace` (Chrome only) records a trace of each scenario's measured part to `bench/results/<runId>-<scenario>.trace.json`,
+which the Performance panel opens, and prints the self ms per function over the worker threads. The production build
+mangles the names, so profile a development build:
+
+```sh
+npx ng build --configuration development --output-path /tmp/cells-dev
+node bench/run.mjs --scenarios idle-cells-out --trace --dist=/tmp/cells-dev/browser
+```
+
 ## When the drawing code changes
 
 The hooks infer cellSize from `drawImage`'s destination width (= blockSize × cellSize). If drawing
@@ -137,6 +150,23 @@ naive neighbour count on the inner cells, and must be byte-identical to the base
 is written, as the worker does. Timing is the median ms per generation of a 2000² block at density
 1/6, with the two versions interleaved. The default baseline, b66d5cb, is the client's earlier
 column-sum algorithm.
+
+## Decode worker per tick (`bench/worker/`)
+
+`node bench/worker/run.mjs` replays the recording through the decode worker's own functions and times, per block and
+tick, the GoL step, the border and, per pool factor, the image and the bitmap. Node times no bitmaps, as it has no canvas.
+
+```sh
+node bench/worker/run.mjs --browsers chrome,firefox,webkit     # also in each browser, headless, in a worker like the app's
+node bench/worker/run.mjs --pf 16,32 --generations 60          # pool factors, ticks per block (--blocks limits the blocks)
+node bench/worker/run.mjs --activity                           # how much of a block a tick changes
+node bench/worker/run.mjs --profile --browsers chrome          # self ms per function, in Node and Chrome
+```
+
+The bundle's footer names the worker functions it calls, so a change to those names needs a change there.
+`--activity` shows how much work a step would need if it skipped what didn't change: the share of words near a change
+since the generation before, or since two generations back as in the backend's AlgorithmGol, and the share of pooled
+patches whose cells changed.
 
 ## FULL block decoding (`bench/full-block/`)
 

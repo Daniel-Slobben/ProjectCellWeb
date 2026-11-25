@@ -3,7 +3,11 @@
 //   node bench/run.mjs [--browsers chrome,firefox,webkit] [--scenarios all|pan-min-fast,zoom-rapid,...]
 //                      [--duration 4000] [--label baseline] [--compare latest|<runId>] [--headless]
 //                      [--viewport 1728x1117] [--dpr 2] [--tick 250] [--dist path/to/build/browser] [--pattern recorded|noise]
-//                      [--mbps 9]
+//                      [--mbps 9] [--trace]
+//
+// --trace (Chrome) records a trace of each scenario's measured part next to its results, for the Performance panel, and
+// prints where the workers spent their time: self ms per function. A development build keeps the function names:
+// npx ng build --configuration development --output-path /tmp/cells-dev, then --dist=/tmp/cells-dev/browser.
 //
 // Browsers open as windows by default, one per browser, and the scenarios load one after another in it. On macOS
 // the app that was in front gets the focus back once the window is open. Results are written to
@@ -21,7 +25,7 @@ const resultsDir = path.join(benchDir, 'results');
 
 const opts = parseArgs(process.argv.slice(2), {
   browsers: 'chrome', scenarios: 'default', duration: 4000, label: '', compare: '', headless: false, dist: '',
-  viewport: '1728x1117', dpr: 2, tick: 250, blockSize: 2000, density: 1 / 6, port: 0, pattern: 'recorded', mbps: 0,
+  viewport: '1728x1117', dpr: 2, tick: 250, blockSize: 2000, density: 1 / 6, port: 0, pattern: 'recorded', mbps: 0, trace: false,
 });
 const [width, height] = opts.viewport.split('x').map(Number);
 
@@ -103,6 +107,33 @@ function table(results, baseline) {
   }).join('  ')).concat(notes).join('\n');
 }
 
+/** Self ms per function over the worker threads of a Chrome trace, the largest first, and the busy ms per thread. */
+function workerProfile(trace, top = 20) {
+  const events = trace.traceEvents ?? trace;
+  const threadNames = new Map(events.filter((e) => e.ph === 'M' && e.name === 'thread_name').map((e) => [`${e.pid}:${e.tid}`, e.args.name]));
+  const workerProfiles = new Set(events.filter((e) => e.name === 'Profile' && threadNames.get(`${e.pid}:${e.tid}`) === 'DedicatedWorker thread')
+    .map((e) => `${e.pid}:${e.id}`));
+  const nodes = new Map(), self = new Map(), busy = new Map();
+  for (const e of events) {
+    const id = `${e.pid}:${e.id}`;
+    if (e.name !== 'ProfileChunk' || !workerProfiles.has(id)) continue;
+    const {cpuProfile = {}, timeDeltas = []} = e.args.data;
+    for (const node of cpuProfile.nodes ?? []) {
+      const {functionName, url, lineNumber} = node.callFrame;
+      nodes.set(`${id}:${node.id}`, `${functionName || '(anonymous)'}${url ? ` ${path.basename(url)}:${lineNumber + 1}` : ''}`);
+    }
+    (cpuProfile.samples ?? []).forEach((node, i) => {
+      const name = nodes.get(`${id}:${node}`), ms = (timeDeltas[i + 1] ?? 0) / 1000;
+      self.set(name, (self.get(name) ?? 0) + ms);
+      if (name !== '(idle)' && name !== '(program)') busy.set(id, (busy.get(id) ?? 0) + ms);
+    });
+  }
+  const total = [...busy.values()].reduce((a, b) => a + b, 0);
+  return `workers busy ${total.toFixed(0)} ms (per thread: ${[...busy.values()].map((ms) => ms.toFixed(0)).join(', ')}), self ms:\n` +
+    [...self].filter(([name]) => name !== '(idle)').sort((a, b) => b[1] - a[1]).slice(0, top)
+      .map(([name, ms]) => `  ${ms.toFixed(0).padStart(6)} ms ${(100 * ms / total).toFixed(1).padStart(5)}%  ${name}`).join('\n');
+}
+
 function loadRun(idOrFile) {
   const file = fs.existsSync(idOrFile) ? idOrFile : path.join(resultsDir, `${idOrFile}.json`);
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
@@ -156,8 +187,20 @@ try {
       let result;
       try {
         await page.goto(`${server.url}?bench=${encodeURIComponent(name)}&duration=${opts.duration}&auto=1`);
+        const tracing = opts.trace && browserName !== 'firefox' && browserName !== 'webkit';
+        if (tracing) {
+          await page.waitForFunction(() => window.__bench?.rec.on || window.__benchResult, null, {timeout: 90000, polling: 50});
+          await browser.startTracing(page, {categories: ['__metadata', 'devtools.timeline', 'disabled-by-default-devtools.timeline',
+            'disabled-by-default-v8.cpu_profiler', 'v8']});
+        }
         await page.waitForFunction(() => window.__benchResult, null, {timeout: opts.duration + 90000, polling: 250});
         result = await page.evaluate(() => window.__benchResult);
+        if (tracing) {
+          const trace = await browser.stopTracing();
+          fs.mkdirSync(resultsDir, {recursive: true});
+          fs.writeFileSync(path.join(resultsDir, `${runId}-${name}.trace.json`), trace);
+          console.log(workerProfile(JSON.parse(trace.toString())));
+        }
       } catch (e) {
         result = {scenario: name, error: String(e.message ?? e)};
       }
