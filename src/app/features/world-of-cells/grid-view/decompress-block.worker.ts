@@ -10,7 +10,7 @@ let sectorPoolFactor = 1;
 let densityGamma = 0.6;
 
 const blockGenerationMap = new Map<string, number>();
-const encodedBlocks = new Map<string, Uint8Array>();
+const blocks = new Map<string, Frames>();
 const earlyBorders = new Map<string, FramedBlock[]>();
 // The share of alive cells per sector, 0-255, of the blocks in the published view that got sectors.
 const sectorBlocks = new Map<string, Uint8Array>();
@@ -67,8 +67,8 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
 
   if (type === 'rescale') {
     for (const {x, y} of payload.data) {
-      const data = encodedBlocks.get(getKey(x, y));
-      if (data) results.push({bitmap: await toBitmap(decodeByteArrayToImageData(data)), x, y});
+      const frames = blocks.get(getKey(x, y));
+      if (frames) results.push({bitmap: await toBitmap(imageOf(frames.current)), x, y});
     }
     return;
   }
@@ -85,10 +85,10 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
       const [x, y] = key.split('/').map(Number);
       if (!inPublishedView(x, y)) sectorBlocks.delete(key);
     }
-    for (const key of [...encodedBlocks.keys(), ...earlyBorders.keys()]) {
+    for (const key of [...blocks.keys(), ...earlyBorders.keys()]) {
       const [x, y] = key.split('/').map(Number);
       if (wantsCells(x, y)) continue;
-      const hadCells = encodedBlocks.has(key);
+      const hadCells = blocks.has(key);
       forgetCells(key);
       // its tile shows through, or nothing until its sectors come
       if (hadCells) results.push({x, y});
@@ -102,12 +102,12 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
     if (!wanted) continue;
 
     if (block.type === FULL) {
-      encodedBlocks.set(key, decodeFull(block.cells));
+      blocks.set(key, framesOf(decodeFull(block.cells)));
       blockGenerationMap.set(key, block.generation);
       for (const border of takeEarlyBorders(key, block.generation)) {
         stepWithBorder(key, border);
       }
-      const bitmap = await toBitmap(decodeByteArrayToImageData(encodedBlocks.get(key)!));
+      const bitmap = await toBitmap(imageOf(blocks.get(key)!.current));
 
       results.push({bitmap, x: block.x, y: block.y});
     } else if (block.type === BORDER) {
@@ -124,7 +124,7 @@ async function decodeBatch(type: string, payload: any, results: any[]): Promise<
         }
 
         stepWithBorder(key, block);
-        const bitmap = await toBitmap(decodeByteArrayToImageData(encodedBlocks.get(key)!));
+        const bitmap = await toBitmap(imageOf(blocks.get(key)!.current));
 
         results.push({bitmap, border: true, x: block.x, y: block.y});
       } catch (e) {
@@ -203,15 +203,16 @@ function wantsCells(x: number, y: number): boolean {
 }
 
 function forgetCells(key: string): void {
-  encodedBlocks.delete(key);
+  blocks.delete(key);
   blockGenerationMap.delete(key);
   earlyBorders.delete(key);
 }
 
 function stepWithBorder(key: string, border: FramedBlock): void {
-  const data = stepGameOfLife(encodedBlocks.get(key)!);
-  writeBorder(border.cells, data);
-  encodedBlocks.set(key, data);
+  const frames = blocks.get(key)!;
+  step(frames);
+  writeBorder(border.cells, frames.current);
+  recount(frames.current);
   blockGenerationMap.set(key, border.generation);
 }
 
@@ -244,58 +245,142 @@ function takeEarlyBorders(key: string, generation: number): FramedBlock[] {
   return following;
 }
 
-let lifeSource = new Int32Array(0);
-let lifeRows: Int32Array[] = [];
-let lifeNextRow = new Int32Array(0);
-let lifeNext = new Int32Array(0);
-let innerMask = new Int32Array(0);
+const FULL_STEPS = 2;
+
+interface Frame {
+  cells: Int32Array;
+  bytes: Uint8Array;
+  changed: Int32Array;
+  counts: Uint16Array;
+  countedPool: number;
+}
+
+interface Frames {
+  current: Frame;
+  previous: Frame;
+  fullSteps: number;
+}
+
+let lifeSize = 0;
 let words = 0;
+let rowWords = 0;
+let rowBytes = 0;
+let markInts = 0;
 let lastWordMask = -1;
+let innerMask = new Int32Array(0);
+let wordMarks = new Int32Array(0);
+let nearMarks = new Int32Array(0);
+let lifeSource = new Int32Array(0);
+
+function prepareLife(): void {
+  if (lifeSize === blockSize) return;
+  lifeSize = blockSize;
+  words = (blockSize + 31) >>> 5;
+  rowWords = words + 2;
+  rowBytes = rowWords * 4;
+  markInts = (words >>> 5) + 1;
+  lastWordMask = blockSize & 31 ? (1 << (blockSize & 31)) - 1 : -1;
+  innerMask = new Int32Array(rowWords);
+  for (let y = 1; y < blockSize - 1; y++) innerMask[(y >>> 5) + 1] |= 1 << y;
+  wordMarks = new Int32Array(markInts);
+  for (let i = 1; i <= words; i++) wordMarks[i >>> 5] |= 1 << i;
+  nearMarks = new Int32Array(markInts);
+  lifeSource = new Int32Array(Math.ceil(blockSize * blockSize / 32) + 1);
+}
+
+function newFrame(): Frame {
+  const cells = new Int32Array(blockSize * rowWords);
+  const changed = new Int32Array(blockSize * markInts);
+  return {cells, bytes: new Uint8Array(cells.buffer, 4), changed, counts: new Uint16Array(0), countedPool: 0};
+}
+
+function framesOf(packed: Uint8Array): Frames {
+  prepareLife();
+  const current = newFrame();
+  new Uint8Array(lifeSource.buffer).set(packed);
+  for (let x = 0; x < blockSize; x++) packRow(lifeSource, current.cells, x);
+  return {current, previous: newFrame(), fullSteps: FULL_STEPS};
+}
 
 /**
  * port of gol algo in backend
  */
-function stepGameOfLife(previous: Uint8Array): Uint8Array {
-  prepareLife(previous.length);
-  new Uint8Array(lifeSource.buffer).set(previous);
-  for (let x = 0; x < blockSize; x++) packRow(lifeSource, lifeRows[x], x);
-
-  lifeNext.fill(0);
-  for (let x = 1; x < blockSize - 1; x++) {
-    nextRow(lifeRows[x - 1], lifeRows[x], lifeRows[x + 1], lifeNextRow);
-    unpackRow(lifeNextRow, lifeNext, x);
+function step(frames: Frames): void {
+  const source = frames.current, target = frames.previous;
+  if (frames.fullSteps > 0) {
+    markCells(source, target);
+    frames.fullSteps--;
   }
-
-  const next = new Uint8Array(previous.length);
-  next.set(new Uint8Array(lifeNext.buffer, 0, previous.length));
-  return next;
+  for (let x = 1; x < blockSize - 1; x++) {
+    if (wordsNear(source.changed, x)) {
+      stepRow(source.cells, target.cells, x, target.changed);
+    } else {
+      for (let k = x * markInts; k < (x + 1) * markInts; k++) target.changed[k] = 0;
+    }
+  }
+  for (let k = 0; k < markInts; k++) target.changed[k] = target.changed[(blockSize - 1) * markInts + k] = 0;
+  frames.current = target;
+  frames.previous = source;
 }
 
-function prepareLife(bytes: number): void {
-  if (lifeRows.length === blockSize && lifeSource.length * 4 >= bytes + 4) return;
-  words = (blockSize + 31) >>> 5;
-  lastWordMask = blockSize & 31 ? (1 << (blockSize & 31)) - 1 : -1;
-  lifeSource = new Int32Array(Math.ceil(bytes / 4) + 1);
-  lifeNext = new Int32Array(Math.ceil(bytes / 4) + 1);
-  lifeNextRow = new Int32Array(words + 2);
-  const rows = new Int32Array(blockSize * (words + 2));
-  lifeRows = Array.from({length: blockSize}, (_, x) => rows.subarray(x * (words + 2), (x + 1) * (words + 2)));
-  innerMask = new Int32Array(words + 2);
-  for (let y = 1; y < blockSize - 1; y++) innerMask[(y >>> 5) + 1] |= 1 << y;
+function markCells(source: Frame, target: Frame): void {
+  source.changed.fill(0);
+  for (let x = 0; x < blockSize; x++) markRow(source, target, x);
 }
 
-function nextRow(upperRow: Int32Array, middleRow: Int32Array, downRow: Int32Array, out: Int32Array): void {
-  for (let i = 1; i <= words; i++) {
+function markRow(source: Frame, target: Frame, x: number): void {
+  for (let i = 1, w = x * rowWords + 1; i <= words; i++, w++) {
+    if ((source.cells[w] | target.cells[w]) !== 0) source.changed[x * markInts + (i >>> 5)] |= 1 << i;
+  }
+}
+
+function wordsNear(changed: Int32Array, x: number): boolean {
+  let any = 0;
+  for (let k = 0, i = (x - 1) * markInts; k < markInts; k++, i++) {
+    nearMarks[k] = changed[i] | changed[i + markInts] | changed[i + 2 * markInts];
+    any |= nearMarks[k];
+  }
+  if (any === 0) return false;
+  let lower = 0;
+  for (let k = 0; k < markInts; k++) {
+    const marks = nearMarks[k], higher = k + 1 < markInts ? nearMarks[k + 1] : 0;
+    nearMarks[k] = (marks | marks << 1 | marks >>> 1 | lower >>> 31 | higher << 31) & wordMarks[k];
+    lower = marks;
+  }
+  return true;
+}
+
+function stepRow(cells: Int32Array, next: Int32Array, x: number, changed: Int32Array): void {
+  for (let k = 0; k < markInts; k++) {
+    let todo = nearMarks[k], marks = 0;
+    while (todo !== 0) {
+      const from = lowestBit(todo), gap = ~todo & (-1 << from), to = gap === 0 ? 32 : lowestBit(gap);
+      todo = to === 32 ? 0 : todo & (-1 << to);
+      marks |= stepWords(cells, next, x * rowWords, (k << 5) + from, (k << 5) + to);
+    }
+    changed[x * markInts + k] = marks;
+  }
+}
+
+function lowestBit(bits: number): number {
+  return 31 - Math.clz32(bits & -bits);
+}
+
+function stepWords(cells: Int32Array, next: Int32Array, middle: number, from: number, to: number): number {
+  const upper = middle - rowWords, down = middle + rowWords;
+  let upperBefore = cells[upper + from - 1], upperWord = cells[upper + from];
+  let middleBefore = cells[middle + from - 1], middleWord = cells[middle + from];
+  let downBefore = cells[down + from - 1], downWord = cells[down + from];
+  let marks = 0;
+  for (let i = from; i < to; i++) {
+    const upperAfter = cells[upper + i + 1], middleAfter = cells[middle + i + 1], downAfter = cells[down + i + 1];
     // neighbours to the left / right: shift the word and pull in the edge bit of the adjacent word
-    const upperWord = upperRow[i];
-    const upperWordLeft = (upperWord << 1) | (upperRow[i - 1] >>> 31);
-    const upperWordRight = (upperWord >>> 1) | (upperRow[i + 1] << 31);
-    const middleWord = middleRow[i];
-    const middleWordLeft = (middleWord << 1) | (middleRow[i - 1] >>> 31);
-    const middleWordRight = (middleWord >>> 1) | (middleRow[i + 1] << 31);
-    const downWord = downRow[i];
-    const downWordLeft = (downWord << 1) | (downRow[i - 1] >>> 31);
-    const downWordRight = (downWord >>> 1) | (downRow[i + 1] << 31);
+    const upperWordLeft = (upperWord << 1) | (upperBefore >>> 31);
+    const upperWordRight = (upperWord >>> 1) | (upperAfter << 31);
+    const middleWordLeft = (middleWord << 1) | (middleBefore >>> 31);
+    const middleWordRight = (middleWord >>> 1) | (middleAfter << 31);
+    const downWordLeft = (downWord << 1) | (downBefore >>> 31);
+    const downWordRight = (downWord >>> 1) | (downAfter << 31);
 
     // per row: 2-bit sum of the neighbours in that row (twos bit: 0 or 1 neighbours = 0, 2 or 3 neighbours = 1)
     const upperEitherLeftOrMiddle = upperWordLeft ^ upperWord;
@@ -319,36 +404,33 @@ function nextRow(upperRow: Int32Array, middleRow: Int32Array, downRow: Int32Arra
     const twoOrThree = (p ^ r) & ~(q | t);
 
     // 3 neighbours: born or survives, 2 neighbours: survives only if alive
-    const next = twoOrThree & (combinedOddNumberAlive | middleWord);
-    const changed = (next ^ middleWord) & innerMask[i];
-    out[i] = middleWord ^ changed;
+    const state = twoOrThree & (combinedOddNumberAlive | middleWord);
+    const old = next[middle + i];
+    const changed = (state ^ old) & innerMask[i];
+    next[middle + i] = old ^ changed;
+    marks |= ((changed | -changed) >>> 31) << i;
+
+    upperBefore = upperWord;
+    upperWord = upperAfter;
+    middleBefore = middleWord;
+    middleWord = middleAfter;
+    downBefore = downWord;
+    downWord = downAfter;
   }
+  return marks;
 }
 
-function packRow(source: Int32Array, row: Int32Array, x: number): void {
+function packRow(source: Int32Array, cells: Int32Array, x: number): void {
   const bit = x * blockSize;
   const first = (bit >>> 5) - 1;
   const shift = bit & 31;
+  const row = x * rowWords;
   if (shift === 0) {
-    for (let i = 1; i <= words; i++) row[i] = source[first + i];
+    for (let i = 1; i <= words; i++) cells[row + i] = source[first + i];
   } else {
-    for (let i = 1; i <= words; i++) row[i] = (source[first + i] >>> shift) | (source[first + i + 1] << (32 - shift));
+    for (let i = 1; i <= words; i++) cells[row + i] = (source[first + i] >>> shift) | (source[first + i + 1] << (32 - shift));
   }
-  row[words] &= lastWordMask;
-}
-
-function unpackRow(row: Int32Array, target: Int32Array, x: number): void {
-  const bit = x * blockSize;
-  const first = (bit >>> 5) - 1;
-  const shift = bit & 31;
-  if (shift === 0) {
-    for (let i = 1; i <= words; i++) target[first + i] |= row[i];
-  } else {
-    for (let i = 1; i <= words; i++) {
-      target[first + i] |= row[i] << shift;
-      target[first + i + 1] |= row[i] >>> (32 - shift);
-    }
-  }
+  cells[row + words] &= lastWordMask;
 }
 
 const OPAQUE = Math.trunc(0xff000000); // A = 255
@@ -400,14 +482,20 @@ async function toBitmap(image: ImageData, alpha = false): Promise<ImageBitmap> {
   return bitmapCanvas.transferToImageBitmap();
 }
 
-function decodePooledImageData(packed: Uint8Array): ImageData {
+function decodePooledImageData(frame: Frame): ImageData {
   const shift = Math.log2(poolFactor);
   const size = Math.ceil(blockSize / poolFactor);
-  const counts = new Uint16Array(size * size);
-  if ((blockSize & 7) === 0) {
-    countPatchesByByte(packed, counts, size, shift);
+  let counts: Uint16Array;
+  if (poolFactor >= 8) {
+    countPatches(frame, size, shift);
+    counts = frame.counts;
   } else {
-    countPatchesByCell(packed, counts, size, shift);
+    counts = new Uint16Array(size * size);
+    if ((blockSize & 7) === 0) {
+      countPatchesByByte(frame.bytes, counts, size, shift);
+    } else {
+      countPatchesByCell(frame.bytes, counts, size, shift);
+    }
   }
 
   // Patch sizes along each axis; only the last row/column can be partial.
@@ -457,7 +545,7 @@ function densityPixel(density: number): number {
  */
 function countPatchesByByte(packed: Uint8Array, counts: Uint16Array, size: number, shift: number): void {
   const n = blockSize;
-  const stride = n >>> 3; // bytes per column
+  const stride = rowBytes; // bytes per column
   if (poolFactor < 8) {
     // A byte spans 8 / poolFactor patch rows. byteCounts[b] holds the alive cells of each in its
     // own 8-bit field, so a patch's columns can be summed in one add each.
@@ -498,6 +586,48 @@ function countLargePatchRow(packed: Uint8Array, counts: Uint16Array, byte0: numb
   }
 }
 
+function countPatches(frame: Frame, size: number, shift: number): void {
+  if (frame.countedPool === poolFactor) return;
+  if (frame.counts.length !== size * size) frame.counts = new Uint16Array(size * size);
+  else frame.counts.fill(0);
+  countPatchesByByte(frame.bytes, frame.counts, size, shift);
+  frame.countedPool = poolFactor;
+}
+
+function recount(frame: Frame): void {
+  if (frame.countedPool !== poolFactor) {
+    frame.countedPool = 0;
+    return;
+  }
+  const size = Math.ceil(blockSize / poolFactor);
+  for (let px = 0; px < size; px++) recountPatchColumn(frame, px, size);
+}
+
+function recountPatchColumn(frame: Frame, px: number, size: number): void {
+  const first = px * poolFactor, end = Math.min(blockSize, first + poolFactor), shift = Math.log2(poolFactor);
+  let counted = -1;
+  for (let k = 0; k < markInts; k++) {
+    let marks = 0;
+    for (let x = first; x < end; x++) marks |= frame.changed[x * markInts + k];
+    for (; marks !== 0; marks &= marks - 1) {
+      const y = ((k << 5) + lowestBit(marks) - 1) << 5;
+      for (let py = Math.max(counted + 1, y >> shift); py <= Math.min(size - 1, (y + 31) >> shift); py++) {
+        frame.counts[py * size + px] = countPatch(frame.bytes, first, end, py);
+        counted = py;
+      }
+    }
+  }
+}
+
+function countPatch(bytes: Uint8Array, first: number, end: number, py: number): number {
+  const from = (py * poolFactor) >>> 3, to = Math.min(words * 4, ((py + 1) * poolFactor) >>> 3);
+  let sum = 0;
+  for (let x = first; x < end; x++) {
+    for (let i = x * rowBytes + from; i < x * rowBytes + to; i++) sum += POPCOUNT[bytes[i]];
+  }
+  return sum;
+}
+
 /** Alive cells per patch for any blockSize, one cell at a time. */
 function countPatchesByCell(packed: Uint8Array, counts: Uint16Array, size: number, shift: number): void {
   for (let x = 0; x < blockSize; x++) countColumnByCell(packed, counts, x, size, shift);
@@ -506,27 +636,27 @@ function countPatchesByCell(packed: Uint8Array, counts: Uint16Array, size: numbe
 function countColumnByCell(packed: Uint8Array, counts: Uint16Array, x: number, size: number, shift: number): void {
   const n = blockSize;
   const px = x >> shift;
-  for (let y = 0, bit = x * n; y < n; y++, bit++) {
+  for (let y = 0, bit = x * rowBytes * 8; y < n; y++, bit++) {
     counts[(y >> shift) * size + px] += (packed[bit >>> 3] >> (bit & 7)) & 1;
   }
 }
 
-function decodeByteArrayToImageData(packed: Uint8Array): ImageData {
+function imageOf(frame: Frame): ImageData {
   if (poolFactor > 1) {
-    return decodePooledImageData(packed);
+    return decodePooledImageData(frame);
   }
   const imageData = imageOfSize(blockSize);
   const pixels = new Int32Array(imageData.data.buffer);
   if ((blockSize & 7) === 0) {
-    transposeByTile(packed, pixels);
+    transposeByTile(frame.bytes, pixels);
   } else {
-    transposeByCell(packed, pixels);
+    transposeByCell(frame.bytes, pixels);
   }
   return imageData;
 }
 
 /**
- * Cells are column-major (bit x * blockSize + y), pixels row-major. With blockSize a multiple of 8,
+ * Cells are column-major (row x of a frame is column x of the picture), pixels row-major. With blockSize a multiple of 8,
  * reads 8 columns x 8 rows (8 bytes) and writes them as 8 runs of 8 pixels, keeping the writes
  * sequential instead of striding down a column. Branchless, since the cells are random.
  */
@@ -536,7 +666,7 @@ function transposeByTile(packed: Uint8Array, pixels: Int32Array): void {
 
 function transposeTileRow(packed: Uint8Array, pixels: Int32Array, y0: number): void {
   const n = blockSize;
-  const stride = n >>> 3;
+  const stride = rowBytes;
   for (let x0 = 0; x0 < n; x0 += 8) {
     let i = x0 * stride + (y0 >>> 3);
     const c0 = packed[i], c1 = packed[i += stride], c2 = packed[i += stride], c3 = packed[i += stride];
@@ -561,7 +691,7 @@ function transposeByCell(packed: Uint8Array, pixels: Int32Array): void {
 
 function transposeColumn(packed: Uint8Array, pixels: Int32Array, x: number): void {
   const n = blockSize;
-  for (let y = 0, bit = x * n, p = x; y < n; y++, bit++, p += n) {
+  for (let y = 0, bit = x * rowBytes * 8, p = x; y < n; y++, bit++, p += n) {
     pixels[p] = cellPixel((packed[bit >>> 3] >> (bit & 7)) & 1);
   }
 }
@@ -584,16 +714,19 @@ function getBit(bits: Uint8Array, i: number): boolean {
   return ((bits[i >>> 3] >> (i & 7)) & 1) === 1;
 }
 
-function setBit(bits: Uint8Array, i: number, value: boolean): void {
-  if (value) bits[i >>> 3] |= 1 << (i & 7);
-  else bits[i >>> 3] &= ~(1 << (i & 7));
+function setCell(frame: Frame, x: number, y: number, alive: boolean): void {
+  const word = (y >>> 5) + 1, at = x * rowWords + word;
+  const cells = alive ? frame.cells[at] | 1 << y : frame.cells[at] & ~(1 << y);
+  if (cells === frame.cells[at]) return;
+  frame.cells[at] = cells;
+  frame.changed[x * markInts + (word >>> 5)] |= 1 << word;
 }
 
 /**
- * Decompresses a border payload and writes it over the border cells of blockBits, setting and clearing.
- * Inner cells are left as they are.
+ * Decompresses a border payload and writes it over the border cells of the frame, setting and clearing, and marks the
+ * words that changed. Inner cells are left as they are.
  */
-function writeBorder(compressedBytes: Uint8Array, blockBits: Uint8Array): void {
+function writeBorder(compressedBytes: Uint8Array, frame: Frame): void {
   const totalBits = blockSize * 4 - 4;
   const borderBits = decompress(compressedBytes, Math.ceil(totalBits / 8));
 
@@ -602,19 +735,19 @@ function writeBorder(compressedBytes: Uint8Array, blockBits: Uint8Array): void {
 
   // cells[i][max] -> y = last edge, full
   for (let x = 0; x < blockSize; x++) {
-    setBit(blockBits, x * blockSize + last, getBit(borderBits, index++));
+    setCell(frame, x, last, getBit(borderBits, index++));
   }
   // cells[i][min] -> y = 0 edge, full
   for (let x = 0; x < blockSize; x++) {
-    setBit(blockBits, x * blockSize, getBit(borderBits, index++));
+    setCell(frame, x, 0, getBit(borderBits, index++));
   }
   // cells[min][i] -> x = 0 column, corners excluded
   for (let y = 1; y < last; y++) {
-    setBit(blockBits, y, getBit(borderBits, index++));
+    setCell(frame, 0, y, getBit(borderBits, index++));
   }
   // cells[max][i] -> x = last column, corners excluded
   for (let y = 1; y < last; y++) {
-    setBit(blockBits, last * blockSize + y, getBit(borderBits, index++));
+    setCell(frame, last, y, getBit(borderBits, index++));
   }
 
   if (index !== totalBits) throw new Error('bit count mismatch: index: ' + index + 'bits: ' + totalBits);

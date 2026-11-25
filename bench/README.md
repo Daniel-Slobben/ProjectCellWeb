@@ -135,21 +135,23 @@ wide for a tile. cover counts a tile's blocks that have no sectors yet, and bloc
 
 ## Game of Life step (`bench/gol/`)
 
-A separate, quicker check of the decode worker's `stepGameOfLife`, outside the app:
+A separate, quicker check of the decode worker's Game of Life step, outside the app:
 
 ```sh
-npm run bench:gol                                         # verify + time in Node, against b66d5cb
+npm run bench:gol                                         # verify + time in Node, against 7345ed3
 npm run bench:gol -- --browsers chrome,firefox,webkit     # also time it in each browser (headless)
 npm run bench:gol -- --baseline HEAD --size 500           # any commit as the baseline, any block size
 ```
 
 `run.mjs` bundles `decompress-block.worker.ts` twice, from the working tree and from the baseline
-commit (via `git show`), and appends an export of `stepGameOfLife` to each. Verification steps random
-blocks of sizes 3 to 2000 and densities 0 to 1 for many generations. The current version must match a
-naive neighbour count on the inner cells, and must be byte-identical to the baseline once the border
-is written, as the worker does. Timing is the median ms per generation of a 2000² block at density
-1/6, with the two versions interleaved. The default baseline, b66d5cb, is the client's earlier
-column-sum algorithm.
+commit (via `git show`), with `../worker/bundle.mjs`. That appends the same calls to either shape of the
+worker: packed bits stepped by `stepGameOfLife` (7345ed3 and before), or two cell arrays per block.
+Verification steps random blocks of sizes 3 to 2000 and densities 0 to 1 for many generations, a random
+border written after each step. The current version must match a naive neighbour count on the inner
+cells, and the baseline on every cell and on the image, at a pool factor that changes every few
+generations. Timing is the median ms per generation of a 2000² block at density 1/6, fresh soup where
+nearly every word changes, with the two versions interleaved. The default baseline, 7345ed3, steps the
+whole block every generation.
 
 ## Decode worker per tick (`bench/worker/`)
 
@@ -158,13 +160,15 @@ tick, the GoL step, the border and, per pool factor, the image and the bitmap. N
 
 ```sh
 node bench/worker/run.mjs --browsers chrome,firefox,webkit     # also in each browser, headless, in a worker like the app's
+node bench/worker/run.mjs --baseline 7345ed3                   # that commit's worker too, in lockstep, images compared
 node bench/worker/run.mjs --pf 16,32 --generations 60          # pool factors, ticks per block (--blocks limits the blocks)
 node bench/worker/run.mjs --activity                           # how much of a block a tick changes
 node bench/worker/run.mjs --profile --browsers chrome          # self ms per function, in Node and Chrome
 ```
 
-The bundle's footer names the worker functions it calls, so a change to those names needs a change there.
-`--activity` shows how much work a step would need if it skipped what didn't change: the share of words near a change
+Each pool factor steps cells of its own, as a worker at that zoom would. A block's first two steps after its FULL are
+computed in full, so the averages include them; p50 is a tick at rest. `bundle.mjs` names the worker functions it
+calls, so a change to those names needs a change there. `--activity` shows how much work a step would need if it skipped what didn't change: the share of words near a change
 since the generation before, or since two generations back as in the backend's AlgorithmGol, and the share of pooled
 patches whose cells changed.
 

@@ -1,10 +1,12 @@
 // Times the decode worker's work per block and tick on the recorded world: the GoL step, the border, and per pool factor
 // the image and the bitmap.
 //
-//   node bench/worker/run.mjs [--browsers chrome,firefox,webkit] [--pf 1,2,4,8,16,32] [--generations 20] [--blocks 0]
-//                             [--activity] [--profile] [--recording bench/recordings/world.bin]
+//   node bench/worker/run.mjs [--baseline 7345ed3] [--browsers chrome,firefox,webkit] [--pf 1,2,4,8,16,32] [--generations 20]
+//                             [--blocks 0] [--activity] [--profile] [--recording bench/recordings/world.bin]
 //
-// The functions are bundled from decompress-block.worker.ts itself, so whatever is in the worker is what gets measured.
+// The functions are bundled from decompress-block.worker.ts itself by bundle.mjs, so whatever is in the worker is what
+// gets measured. --baseline bundles the worker of that commit too and runs it in lockstep: its numbers come first, and
+// every image of the two must be the same.
 // Node has no canvas, so it times no bitmaps. Browsers run headless, in a worker like the app's, on a cross-origin
 // isolated page so performance.now() has a fine resolution. --activity reports how much of a block a tick touches.
 // --profile samples where the time goes, in Node and Chrome: self ms per function, summed over the run. Node counts the
@@ -13,36 +15,40 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {execSync} from 'node:child_process';
 import {Session} from 'node:inspector/promises';
-import * as esbuild from 'esbuild';
 import {parseArgs} from '../server.mjs';
+import {bundleWorker, workerPath} from './bundle.mjs';
 
 const workerDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(workerDir, '../..');
-const workerPath = path.join(projectDir, 'src/app/features/world-of-cells/grid-view/decompress-block.worker.ts');
 const opts = parseArgs(process.argv.slice(2), {
-  browsers: '', pf: '1,2,4,8,16,32', generations: 20, blocks: 0, activity: false, profile: false,
+  baseline: '', browsers: '', pf: '1,2,4,8,16,32', generations: 20, blocks: 0, activity: false, profile: false,
   recording: path.join(workerDir, '../recordings/world.bin'),
 });
-const runOptions = {pfs: opts.pf.split(',').map(Number), generations: opts.generations, blocks: opts.blocks};
+const runOptions = {pfs: opts.pf.split(',').map(Number), generations: opts.generations, blocks: opts.blocks, compare: !!opts.baseline};
 
-const footer = `
-export const worker = {stepGameOfLife, writeBorder, decodeByteArrayToImageData, decodeFull, toBitmap, readBlockFrame, zstdReady,
-  setBlockSize(n: number) { blockSize = n; }, setPoolFactor(n: number) { poolFactor = n; }};
-`;
-await esbuild.build({
-  stdin: {contents: fs.readFileSync(workerPath, 'utf8') + footer, resolveDir: path.dirname(workerPath), sourcefile: 'worker.ts', loader: 'ts'},
-  bundle: true, format: 'esm', target: 'es2022', outfile: path.join(workerDir, '.build/worker.mjs'), logLevel: 'error',
-});
+const buildDir = path.join(workerDir, '.build');
+fs.mkdirSync(buildDir, {recursive: true});
+await bundleWorker(fs.readFileSync(workerPath, 'utf8'), path.join(buildDir, 'current.mjs'));
+if (opts.baseline) {
+  const source = execSync(`git show ${opts.baseline}:${path.relative(projectDir, workerPath)}`, {cwd: projectDir, maxBuffer: 1 << 24}).toString();
+  await bundleWorker(source, path.join(buildDir, 'baseline.mjs'));
+} else {
+  fs.writeFileSync(path.join(buildDir, 'baseline.mjs'), `export {worker} from './current.mjs';\n`);
+}
 const recording = fs.readFileSync(opts.recording);
 
 function report(name, r) {
-  const ms = (m) => `${m.avg.toFixed(2).padStart(6)} (${m.p90.toFixed(2)})`;
-  console.log(`${name}: ${r.blocks} blocks x ${r.ticks / r.blocks} ticks${r.gaps ? `, ${r.gaps} GENERATION GAPS` : ''}; ` +
-    `ms per block, avg (p90): FULL ${ms(r.full)}, step ${ms(r.step)}, border ${ms(r.border)}`);
-  for (const {pf, image, bitmap} of r.pools) {
-    const total = r.step.avg + r.border.avg + image.avg + (bitmap?.avg ?? 0);
-    console.log(`  pf ${String(pf).padStart(2)}: image ${ms(image)}${bitmap ? `, bitmap ${ms(bitmap)}` : ''}, tick ${total.toFixed(2)}`);
+  const ms = (m) => `${m.avg.toFixed(2).padStart(5)} (${m.p50.toFixed(2)}, ${m.p90.toFixed(2)})`;
+  console.log(`${name}: ${r.blocks} blocks x ${r.ticks / r.blocks} ticks${r.gaps ? `, ${r.gaps} GENERATION GAPS` : ''}` +
+    `${r.differences === null ? '' : r.differences ? `, IMAGES DIFFER ${r.differences} TIMES` : ', images the same'}; ms per block, avg (p50, p90):`);
+  for (const v of r.versions) {
+    console.log(`  ${opts.baseline ? `${v.name === 'baseline' ? opts.baseline : 'current'}: `.padEnd(10) : ''}FULL ${ms(v.full)}, step ${ms(v.step)}, border ${ms(v.border)}`);
+    for (const {pf, image, bitmap} of v.pools) {
+      const total = v.step.avg + v.border.avg + image.avg + (bitmap?.avg ?? 0);
+      console.log(`    pf ${String(pf).padStart(2)}: image ${ms(image)}${bitmap ? `, bitmap ${ms(bitmap)}` : ''}, tick ${total.toFixed(2)}`);
+    }
   }
 }
 
@@ -59,13 +65,6 @@ function summarise(profile, top = 15) {
     .map(([name, ms]) => `    ${ms.toFixed(0).padStart(6)} ms ${(100 * ms / total).toFixed(1).padStart(5)}%  ${name}`).join('\n');
 }
 
-globalThis.ImageData ??= class {
-  constructor(width, height) {
-    this.width = width;
-    this.height = height;
-    this.data = new Uint8ClampedArray(width * height * 4);
-  }
-};
 const harness = await import(path.join(workerDir, 'harness.mjs'));
 if (opts.activity) {
   const shares = await harness.activity(recording, {generations: opts.generations, blocks: opts.blocks});
